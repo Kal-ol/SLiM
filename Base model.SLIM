@@ -1,409 +1,414 @@
+// ============================================================
+//  3-pop nonWF hybrid model (SLiM 5.0)
+//  Purpose: competition × 2-locus BDMI; hybrids migrate to p3
+// ============================================================
+
+
+//////////////////////////////
 //  UTILITY FUNCTIONS
 
-// Add derived allele mutation at a position if not already present
 function (void) addAllele(object<Haplosome> g, object<MutationType> mt, integer pos)
 {
-    muts = g.mutationsOfType(mt);
-    if (size(muts) > 0) {
-        if (sum(muts.position == pos) > 0) return;
-    }
-    g.addNewDrawnMutation(mt, pos);
+	muts = g.mutationsOfType(mt);
+	if (size(muts) > 0) {
+		if (sum(muts.position == pos) > 0) return;
+	}
+	g.addNewDrawnMutation(mt, pos);
 }
 
-// Map a haplotype (single Genome) to index 1..4 based on presence/absence of A2 and B2
-// 1: A1B1, 2: A1B2, 3: A2B1, 4: A2B2
 function (integer) hapIndex(object<Haplosome> g)
 {
-    hasA2 = F;
-    hasB2 = F;
-
-    a = g.mutationsOfType(mA2);
-    if (size(a) > 0) {
-        if (sum(a.position == posA) > 0) hasA2 = T;
-    }
-
-    b = g.mutationsOfType(mB2);
-    if (size(b) > 0) {
-        if (sum(b.position == posB) > 0) hasB2 = T;
-    }
-
-    if (hasA2) {
-        if (hasB2) return 4;
-        return 3;
-    }
-    if (hasB2) return 2;
-    return 1;
+	hasA2 = F;
+	hasB2 = F;
+	
+	a = g.mutationsOfType(m1);
+	if (size(a) > 0)
+		if (sum(a.position == posA) > 0) hasA2 = T;
+	
+	b = g.mutationsOfType(m2);
+	if (size(b) > 0)
+		if (sum(b.position == posB) > 0) hasB2 = T;
+	
+	if (hasA2) {
+		if (hasB2) return 4;
+		return 3;
+	}
+	if (hasB2) return 2;
+	return 1;
 }
 
-// Orleach-style BDMI multiplier based on genotype haplotype pair (i<=j)
+
 function (numeric) orleachBDMIMultiplier(object<Individual> ind)
 {
-    i = hapIndex(ind.genome1);
-    j = hapIndex(ind.genome2);
-
-    if (i > j) {
-        tmp = i;
-        i = j;
-        j = tmp;
-    }
-
-    one_hs = 1.0 + h*s;
-    one_s  = 1.0 + s;
-
-    e_single = (1.0 - hb*sb);
-    e_double = (1.0 - hb*kb*sb);
-    e_full   = (1.0 - sb);
-
-    w = 1.0;
-
-    if (i == 1) {
-        if (j == 1) w = 1.0;
-        else if (j == 2) w = 1.0;
-        else if (j == 3) w = one_hs;
-        else if (j == 4) w = one_hs * e_double;
-    }
-    else if (i == 2) {
-        if (j == 2) w = 1.0;
-        else if (j == 3) w = one_hs * e_double;
-        else if (j == 4) w = one_hs * e_single;
-    }
-    else if (i == 3) {
-        if (j == 3) w = one_s;
-        else if (j == 4) w = one_s * e_single;
-    }
-    else if (i == 4) {
-        if (j == 4) w = one_s * e_full;
-    }
-
-    return w;
+	i = hapIndex(ind.haploidGenome1);
+	j = hapIndex(ind.haploidGenome2);
+	
+	if (i > j) { tmp = i; i = j; j = tmp; }
+	
+	one_hs = 1.0 + h*s;
+	one_s  = 1.0 + s;
+	
+	e_single = (1.0 - hb*sb);
+	e_double = (1.0 - hb*kb*sb);
+	e_full   = (1.0 - sb);
+	
+	w = 1.0;
+	
+	if (i == 1) {
+		if (j == 1) w = 1.0;
+		else if (j == 2) w = 1.0;
+		else if (j == 3) w = one_hs;
+		else if (j == 4) w = one_hs * e_double;
+	}
+	else if (i == 2) {
+		if (j == 2) w = 1.0;
+		else if (j == 3) w = one_hs * e_double;
+		else if (j == 4) w = one_hs * e_single;
+	}
+	else if (i == 3) {
+		if (j == 3) w = one_s;
+		else if (j == 4) w = one_s * e_single;
+	}
+	else { // i == 4
+		if (j == 4) w = one_s * e_full;
+	}
+	
+	return w;
 }
 
-// Move hybrid-flagged offspring from p1/p2 into p3
+
+
 function (void) migrateFlaggedHybrids(void)
 {
-    migrants = c();
-
-    for (ind in c(p1.individuals, p2.individuals)) {
-        flag = ind.getValue("migrateToP3");
-        if (!isNULL(flag)) {
-            if (flag) migrants = c(migrants, ind);
-        }
-    }
-
-    if (size(migrants) > 0) {
-        p3.takeMigrants(migrants);
-        for (ind in migrants)
-            ind.setValue("migrateToP3", F);
-    }
+	migrants = c();
+	
+	for (ind in c(p1.individuals, p2.individuals)) {
+		flag = ind.getValue("migrateToP3");
+		if (!isNULL(flag))
+			if (flag) migrants = c(migrants, ind);
+	}
+	
+	if (size(migrants) > 0) {
+		p3.takeMigrants(migrants);
+		for (ind in migrants)
+			ind.setValue("migrateToP3", F);
+	}
 }
 
-// Competition scaling: sets fitnessScaling = w_comp for each population
 function (void) applyCompetition(numeric K1, numeric K2, numeric K3)
 {
-    if (p1.individualCount > 0) {
-        comp = c_p1 * (
-            (p1.individualCount / K1) +
-            alpha_p1_p2 * (p2.individualCount / K2) +
-            alpha_pX_p3 * (p3.individualCount / K3)
-        );
-        base = 1.0 - comp;
-        if (base < 0.01) base = 0.01;
-        for (ind in p1.individuals) ind.fitnessScaling = base;
-    }
-
-    if (p2.individualCount > 0) {
-        comp = c_p2 * (
-            (p2.individualCount / K2) +
-            alpha_p2_p1 * (p1.individualCount / K1) +
-            alpha_pX_p3 * (p3.individualCount / K3)
-        );
-        base = 1.0 - comp;
-        if (base < 0.01) base = 0.01;
-        for (ind in p2.individuals) ind.fitnessScaling = base;
-    }
-
-    if (p3.individualCount > 0) {
-        comp = c_p3 * (
-            (p3.individualCount / K3) +
-            alpha_p3_p1 * (p1.individualCount / K1) +
-            alpha_p3_p2 * (p2.individualCount / K2)
-        );
-        base = 1.0 - comp;
-        if (base < 0.01) base = 0.01;
-        for (ind in p3.individuals) ind.fitnessScaling = base;
-    }
+	if (p1.individualCount > 0) {
+		comp = c_p1 * (
+			(p1.individualCount / K1) +
+			alpha_p1_p2 * (p2.individualCount / K2) +
+			alpha_pX_p3 * (p3.individualCount / K3)
+			);
+		base = 1.0 - comp;
+		if (base < 0.01) base = 0.01;
+		for (ind in p1.individuals) ind.fitnessScaling = base;
+	}
+	
+	if (p2.individualCount > 0) {
+		comp = c_p2 * (
+			(p2.individualCount / K2) +
+			alpha_p2_p1 * (p1.individualCount / K1) +
+			alpha_pX_p3 * (p3.individualCount / K3)
+			);
+		base = 1.0 - comp;
+		if (base < 0.01) base = 0.01;
+		for (ind in p2.individuals) ind.fitnessScaling = base;
+	}
+	
+	if (p3.individualCount > 0) {
+		comp = c_p3 * (
+			(p3.individualCount / K3) +
+			alpha_p3_p1 * (p1.individualCount / K1) +
+			alpha_p3_p2 * (p2.individualCount / K2)
+			);
+		base = 1.0 - comp;
+		if (base < 0.01) base = 0.01;
+		for (ind in p3.individuals) ind.fitnessScaling = base;
+	}
 }
 
-// Apply BDMI multiplicatively to existing fitnessScaling (which already holds competition)
-// Final: fitnessScaling = w_comp * w_bdmi
 function (void) applyOrleachBDMI(void)
 {
-    for (pop in sim.subpopulations) {
-        for (ind in pop.individuals) {
-            w_bdmi = orleachBDMIMultiplier(ind);
-            ind.setValue("w_bdmi", w_bdmi);
-
-            ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
-            if (ind.fitnessScaling < 0.01) ind.fitnessScaling = 0.01;
-        }
-    }
+	for (pop in sim.subpopulations) {
+		for (ind in pop.individuals) {
+			w_bdmi = orleachBDMIMultiplier(ind);
+			ind.setValue("w_bdmi", w_bdmi);
+			
+			ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
+			if (ind.fitnessScaling < 0.01) ind.fitnessScaling = 0.01;
+		}
+	}
 }
 
 
 //////////////////////////////
-//  MAIN SCRIPT
+//  INITIALIZE
 
 initialize()
 {
-    initializeSLiMModelType("nonWF");
-    initializeSLiMOptions(keepPedigrees=F);
-
-    defineConstant("L", 100000);
-    defineConstant("posA", 20000);
-    defineConstant("posB", 70000);
-
-    initializeMutationType("mA2", 0.5, "f", 0.0);
-    initializeMutationType("mB2", 0.5, "f", 0.0);
-    mA2.convertToSubstitution = F;
-    mB2.convertToSubstitution = F;
-
-    initializeGenomicElementType("g1", c(mA2, mB2), c(0.5, 0.5));
-    initializeGenomicElement(g1, 0, L-1);
-
-    defineConstant("MU", 0.0);
-    initializeMutationRate(MU);
-    initializeRecombinationRate(1e-3);
-
-    defineConstant("K_total", 2500.0);
-    defineConstant("K_prop_p1", 0.38375);
-    defineConstant("K_prop_p2", 0.38375);
-    defineConstant("K_prop_p3", 0.23250);
-
-    defineConstant("maxOvules_p1p2", 12);
-    defineConstant("maxOvules_p3",   7);
-
-    // Used for parent-parent hybridization AND parent-hybrid backcrossing AND hybrid-parent backcrossing
-    defineConstant("hybridizationRate", 0.05);
-
-    defineConstant("dd_rate0", 0.75);
-    defineConstant("dd_c",     2.0);
-    defineConstant("dd_floor", 0.01);
-
-    defineConstant("alpha_p1_p2", 0.0);
-    defineConstant("alpha_p2_p1", 0.0);
-    defineConstant("alpha_pX_p3", 0.0);
-    defineConstant("alpha_p3_p1", 0.0);
-    defineConstant("alpha_p3_p2", 0.0);
-
-    defineConstant("c_p1", 0.3);
-    defineConstant("c_p2", 0.3);
-    defineConstant("c_p3", 0.5);
-
-    defineConstant("surv_k", 3.0);
-    defineConstant("surv_theta", 0.6);
-
-    defineConstant("s",  0.10);
-    defineConstant("h",  0.50);
-    defineConstant("sb", 0.30);
-    defineConstant("hb", 0.50);
-    defineConstant("kb", 1.00);
-
-    defineConstant("T_max", 150);
-    defineConstant("OUTFILE", "output_orleach_bdmi.txt");
+	initializeSLiMModelType("nonWF");
+	initializeSLiMOptions(keepPedigrees=F);
+	
+	defineConstant("L", 100000);
+	defineConstant("posA", 20000);
+	defineConstant("posB", 70000);
+	
+	initializeMutationType("m1", 0.5, "f", 0.0);  // A2
+	initializeMutationType("m2", 0.5, "f", 0.0);  // B2
+	m1.convertToSubstitution = F;
+	m2.convertToSubstitution = F;
+	
+	initializeGenomicElementType("g1", c(m1, m2), c(0.5, 0.5));
+	
+	initializeGenomicElement(g1, 0, L-1);
+	
+	defineConstant("MU", 0.0);
+	initializeMutationRate(MU);
+	initializeRecombinationRate(1e-3);
+	
+	defineConstant("K_total", 2500.0);
+	defineConstant("K_prop_p1", 0.38375);
+	defineConstant("K_prop_p2", 0.38375);
+	defineConstant("K_prop_p3", 0.23250);
+	
+	defineConstant("maxOvules_p1p2", 12);
+	defineConstant("maxOvules_p3",   7);
+	
+	defineConstant("hybridizationRate", 0.05);
+	
+	defineConstant("dd_rate0", 0.75);
+	defineConstant("dd_c",     2.0);
+	defineConstant("dd_floor", 0.01);
+	
+	defineConstant("alpha_p1_p2", 0.0);
+	defineConstant("alpha_p2_p1", 0.0);
+	defineConstant("alpha_pX_p3", 0.0);
+	defineConstant("alpha_p3_p1", 0.0);
+	defineConstant("alpha_p3_p2", 0.0);
+	
+	defineConstant("c_p1", 0.3);
+	defineConstant("c_p2", 0.3);
+	defineConstant("c_p3", 0.5);
+	
+	defineConstant("surv_k", 3.0);
+	defineConstant("surv_theta", 0.6);
+	
+	defineConstant("s",  0.10);
+	defineConstant("h",  0.50);
+	defineConstant("sb", 0.30);
+	defineConstant("hb", 0.50);
+	defineConstant("kb", 1.00);
+	
+	defineConstant("T_max", 150);
+	defineConstant("OUTFILE", "output_orleach_bdmi.txt");
 }
+
+
+//////////////////////////////
+//  SETUP (FOUNDERS + OUTPUT)
 
 1 early()
 {
-    sim.addSubpop("p1", 100);
-    sim.addSubpop("p2", 150);
-    sim.addSubpop("p3", 0);
+	sim.addSubpop("p1", 100);
+	sim.addSubpop("p2", 150);
+	sim.addSubpop("p3", 0);
+	
+	writeFile(OUTFILE,
+		"gen\tN1\tN2\tN3\tmeanW_p1\tmeanW_p2\tmeanW_p3\tmeanBDMI_p3\tK1\tK2\tK3\n",
+		append=F);
+	
+	for (ind in p1.individuals) {
+		addAllele(ind.haploidGenome1, m1, posA);
+		addAllele(ind.haploidGenome2, m1, posA);
+	}
+	
+	for (ind in p2.individuals) {
+		addAllele(ind.haploidGenome1, m2, posB);
+		addAllele(ind.haploidGenome2, m2, posB);
+	}
 
-    writeFile(OUTFILE,
-        "gen\tN1\tN2\tN3\tmeanW_p1\tmeanW_p2\tmeanW_p3\tmeanBDMI_p3\tK1\tK2\tK3\n",
-        append=F);
 
-    // Founders: p1 fixed for A2; p2 fixed for B2
-    for (ind in p1.individuals) {
-        addAllele(ind.genome1, mA2, posA);
-        addAllele(ind.genome2, mA2, posA);
-    }
 
-    for (ind in p2.individuals) {
-        addAllele(ind.genome1, mB2, posB);
-        addAllele(ind.genome2, mB2, posB);
-    }
 }
+
+
+//////////////////////////////
+//  REPRODUCTION (HYBRIDS FLAGGED -> MIGRATE TO P3)
 
 reproduction()
 {
-    totalPop = p1.individualCount + p2.individualCount + p3.individualCount;
-    density  = totalPop / K_total;
-
-    fertilizationRate = max(dd_rate0 * exp(-dd_c * density), dd_floor);
-
-    if (totalPop >= K_total)
-        return;
-
-    // ----------------------------
-    // p1 reproduction (offspring born in p1 unless flagged hybrid -> migrate to p3)
-    // Hybridization events can be p1×p2 OR p1×p3; both produce hybrids (=> migrate)
-    if (subpop == p1) {
-        n = min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10);
-        for (i in seqLen(n)) {
-
-            doHybrid = (runif(1) < hybridizationRate);
-
-            if (doHybrid) {
-                candidates = c();
-                if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
-                if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
-
-                if (size(candidates) > 0) {
-                    mate = sample(candidates, 1);
-                    kid  = subpop.addCrossed(individual, mate);
-                    kid.setValue("migrateToP3", T);   // any parent×(parent/hybrid) hybridization => p3
-                } else {
-                    mate = sample(p1.individuals, 1);
-                    kid  = subpop.addCrossed(individual, mate);
-                }
-            } else {
-                mate = sample(p1.individuals, 1);
-                kid  = subpop.addCrossed(individual, mate);
-            }
-        }
-        return;
-    }
-
-    // ----------------------------
-    // p2 reproduction (offspring born in p2 unless flagged hybrid -> migrate to p3)
-    // Hybridization events can be p2×p1 OR p2×p3; both produce hybrids (=> migrate)
-    if (subpop == p2) {
-        n = min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10);
-        for (i in seqLen(n)) {
-
-            doHybrid = (runif(1) < hybridizationRate);
-
-            if (doHybrid) {
-                candidates = c();
-                if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
-                if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
-
-                if (size(candidates) > 0) {
-                    mate = sample(candidates, 1);
-                    kid  = subpop.addCrossed(individual, mate);
-                    kid.setValue("migrateToP3", T);   // any parent×(parent/hybrid) hybridization => p3
-                } else {
-                    mate = sample(p2.individuals, 1);
-                    kid  = subpop.addCrossed(individual, mate);
-                }
-            } else {
-                mate = sample(p2.individuals, 1);
-                kid  = subpop.addCrossed(individual, mate);
-            }
-        }
-        return;
-    }
-
-    // ----------------------------
-    // p3 reproduction (SEXUAL)
-    // Default: mate within p3
-    // Backcrossing: p3×p1 or p3×p2 at hybridizationRate; offspring stays in p3 (still hybrid)
-    if (subpop == p3) {
-        n = min(rbinom(1, maxOvules_p3, fertilizationRate), 10);
-        for (i in seqLen(n)) {
-
-            doBackcross = (runif(1) < hybridizationRate);
-
-            if (doBackcross) {
-                candidates = c();
-                if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
-                if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
-
-                if (size(candidates) > 0) {
-                    mate = sample(candidates, 1);
-                } else {
-                    // fallback to within-hybrid mating if no parents exist
-                    mate = (p3.individualCount > 0) ? sample(p3.individuals, 1) else individual;
-                }
-            } else {
-                mate = (p3.individualCount > 0) ? sample(p3.individuals, 1) else individual;
-            }
-
-            kid = subpop.addCrossed(individual, mate); // offspring born in p3
-        }
-        return;
-    }
+	totalPop = p1.individualCount + p2.individualCount + p3.individualCount;
+	density  = totalPop / K_total;
+	
+	fertilizationRate = max(dd_rate0 * exp(-dd_c * density), dd_floor);
+	
+	if (totalPop >= K_total)
+		return;
+	
+	if (subpop == p1) {
+		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10));
+		for (i in seqLen(n)) {
+			doHybrid = (runif(1) < hybridizationRate);
+			
+			if (doHybrid) {
+				candidates = c();
+				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
+				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				
+				if (size(candidates) > 0) {
+					mate = sample(candidates, 1);
+					kid  = subpop.addCrossed(individual, mate);
+					kid.setValue("migrateToP3", T);
+				} else {
+					mate = sample(p1.individuals, 1);
+					kid  = subpop.addCrossed(individual, mate);
+				}
+			} else {
+				mate = sample(p1.individuals, 1);
+				kid  = subpop.addCrossed(individual, mate);
+			}
+		}
+		return;
+	}
+	
+	if (subpop == p2) {
+		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10));
+		for (i in seqLen(n)) {
+			doHybrid = (runif(1) < hybridizationRate);
+			
+			if (doHybrid) {
+				candidates = c();
+				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
+				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				
+				if (size(candidates) > 0) {
+					mate = sample(candidates, 1);
+					kid  = subpop.addCrossed(individual, mate);
+					kid.setValue("migrateToP3", T);
+				} else {
+					mate = sample(p2.individuals, 1);
+					kid  = subpop.addCrossed(individual, mate);
+				}
+			} else {
+				mate = sample(p2.individuals, 1);
+				kid  = subpop.addCrossed(individual, mate);
+			}
+		}
+		return;
+	}
+	
+	if (subpop == p3) {
+		n = asInteger(min(rbinom(1, maxOvules_p3, fertilizationRate), 10));
+		for (i in seqLen(n)) {
+			
+			doBackcross = (runif(1) < hybridizationRate);
+			
+			if (doBackcross) {
+				candidates = c();
+				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
+				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
+				
+				if (size(candidates) > 0) {
+					mate = sample(candidates, 1);
+				} else {
+					mate = sample(p3.individuals, 1);
+				}
+			} else {
+				mate = sample(p3.individuals, 1);
+			}
+			
+			kid = subpop.addCrossed(individual, mate);
+		}
+		return;
+	}
 }
+
+
+//////////////////////////////
+//  FITNESS ASSEMBLY (RESET -> MIGRATE -> COMP -> BDMI)
 
 early()
 {
-    // Reset each gen so multiplicative components don't "stick"
-    for (pop in sim.subpopulations)
-        for (ind in pop.individuals)
-            ind.fitnessScaling = 1.0;
-
-    migrateFlaggedHybrids();
-
-    K1 = K_total * K_prop_p1;
-    K2 = K_total * K_prop_p2;
-    K3 = K_total * K_prop_p3;
-
-    applyCompetition(K1, K2, K3);   // w_comp
-    applyOrleachBDMI();             // multiply by w_bdmi
-
-    sim.setValue("K1", K1);
-    sim.setValue("K2", K2);
-    sim.setValue("K3", K3);
+	for (pop in sim.subpopulations)
+		for (ind in pop.individuals)
+			ind.fitnessScaling = 1.0;
+	
+	migrateFlaggedHybrids();
+	
+	K1 = K_total * K_prop_p1;
+	K2 = K_total * K_prop_p2;
+	K3 = K_total * K_prop_p3;
+	
+	applyCompetition(K1, K2, K3);
+	applyOrleachBDMI();
+	
+	sim.setValue("K1", K1);
+	sim.setValue("K2", K2);
+	sim.setValue("K3", K3);
 }
 
-survival(p1)
+
+//////////////////////////////
+//  SURVIVAL (LOGISTIC FILTER ON fitnessScaling)
+
+survival()
 {
-    w = individual.fitnessScaling;
-    return 1.0 / (1.0 + exp(-surv_k * (w - surv_theta)));
+	w = individual.fitnessScaling;
+	p = 1.0 / (1.0 + exp(-surv_k * (w - surv_theta)));
+	return (runif(1) < p);
 }
 
-survival(p2)
-{
-    w = individual.fitnessScaling;
-    return 1.0 / (1.0 + exp(-surv_k * (w - surv_theta)));
-}
 
-survival(p3)
-{
-    w = individual.fitnessScaling;
-    return 1.0 / (1.0 + exp(-surv_k * (w - surv_theta)));
-}
+
+//////////////////////////////
+//  OUTPUT + STOP
 
 late()
 {
-    meanW1 = p1.individualCount > 0 ? mean(p1.individuals.fitnessScaling) : 0.0;
-    meanW2 = p2.individualCount > 0 ? mean(p2.individuals.fitnessScaling) : 0.0;
-    meanW3 = p3.individualCount > 0 ? mean(p3.individuals.fitnessScaling) : 0.0;
-
-    meanBDMIp3 = 0.0;
-    if (p3.individualCount > 0) {
-        sumBD = 0.0;
-        for (ind in p3.individuals) {
-            v = ind.getValue("w_bdmi");
-            if (isNULL(v)) v = 1.0;
-            sumBD = sumBD + v;
-        }
-        meanBDMIp3 = sumBD / p3.individualCount;
-    }
-
-    K1 = sim.getValue("K1");
-    K2 = sim.getValue("K2");
-    K3 = sim.getValue("K3");
-
-    writeFile(OUTFILE,
-        sim.cycle + "\t" +
-        p1.individualCount + "\t" +
-        p2.individualCount + "\t" +
-        p3.individualCount + "\t" +
-        meanW1 + "\t" + meanW2 + "\t" + meanW3 + "\t" +
-        meanBDMIp3 + "\t" + K1 + "\t" + K2 + "\t" + K3 + "\n",
-        append=T);
-
-    if (sim.cycle >= T_max)
-        sim.simulationFinished();
+	if (p1.individualCount > 0)
+		meanW1 = mean(p1.individuals.fitnessScaling);
+	else
+		meanW1 = 0.0;
+	
+	if (p2.individualCount > 0)
+		meanW2 = mean(p2.individuals.fitnessScaling);
+	else
+		meanW2 = 0.0;
+	
+	if (p3.individualCount > 0)
+		meanW3 = mean(p3.individuals.fitnessScaling);
+	else
+		meanW3 = 0.0;
+	
+	
+	meanBDMIp3 = 0.0;
+	if (p3.individualCount > 0) {
+		sumBD = 0.0;
+		for (ind in p3.individuals) {
+			v = ind.getValue("w_bdmi");
+			if (isNULL(v)) v = 1.0;
+			sumBD = sumBD + v;
+		}
+		meanBDMIp3 = sumBD / p3.individualCount;
+	}
+	
+	K1 = sim.getValue("K1");
+	K2 = sim.getValue("K2");
+	K3 = sim.getValue("K3");
+	
+	writeFile(OUTFILE,
+		sim.cycle + "\t" +
+		p1.individualCount + "\t" +
+		p2.individualCount + "\t" +
+		p3.individualCount + "\t" +
+		meanW1 + "\t" + meanW2 + "\t" + meanW3 + "\t" +
+		meanBDMIp3 + "\t" + K1 + "\t" + K2 + "\t" + K3 + "\n",
+		append=T);
+	
+	if (sim.cycle >= T_max)
+		sim.simulationFinished();
 }
