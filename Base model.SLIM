@@ -150,16 +150,17 @@ function (void) applyOrleachBDMI(void)
 
 survival()
 {
-	// keep adults alive through the cycle (so they can reproduce)
-	if (individual.age > 0)
-		return T;
-	
-	// viability selection on juveniles
-	p = individual.fitnessScaling;
-	if (p < 0.01) p = 0.01;
-	if (p > 0.99) p = 0.99;
-	return (runif(1) < p);
+    // annual: all older individuals die
+    if (individual.age > 0)
+        return F;
+
+    // viability selection on age-0 cohort
+    p = individual.fitnessScaling;
+    if (p < 0.01) p = 0.01;
+    if (p > 0.99) p = 0.99;
+    return (runif(1) < p);
 }
+
 
 
 
@@ -227,16 +228,22 @@ initialize()
 //////////////////////////////
 //  SETUP (FOUNDERS + OUTPUT)
 
-1 early()
+//////////////////////////////
+//  SETUP (FOUNDERS + OUTPUT) — FIRST()
+
+1 first()
 {
+	// ---- create founding populations BEFORE first reproduction
 	sim.addSubpop("p1", 100);
 	sim.addSubpop("p2", 150);
 	sim.addSubpop("p3", 0);
 	
+	// ---- output header
 	writeFile(OUTFILE,
 		"gen\tN1\tN2\tN3\tmeanW_p1\tmeanW_p2\tmeanW_p3\tmeanBDMI_p3\tK1\tK2\tK3\n",
 		append=F);
 	
+	// ---- fix parental genotypes
 	for (ind in p1.individuals) {
 		addAllele(ind.haploidGenome1, m1, posA);
 		addAllele(ind.haploidGenome2, m1, posA);
@@ -249,11 +256,13 @@ initialize()
 }
 
 
+
 //////////////////////////////
 //  REPRODUCTION (ANNUAL: create offspring, then cull adults in late())
 
 reproduction()
-{
+{	
+	
 	totalPop = p1.individualCount + p2.individualCount + p3.individualCount;
 	density  = totalPop / K_total;
 	
@@ -380,15 +389,7 @@ late()
 	
 	
 	
-	// cull all adults (annual life cycle: adults die after reproducing once)
-	old = c(p1.individuals[p1.individuals.age > 0],
-		p2.individuals[p2.individuals.age > 0],
-		p3.individuals[p3.individuals.age > 0]);
-	
-	if (size(old) > 0)
-		sim.killIndividuals(old);
-	
-	
+
 	// ---- Mean fitnessScaling per population (after survival this generation)
 	if (p1.individualCount > 0) meanW1 = mean(p1.individuals.fitnessScaling); else meanW1 = 0.0;
 	if (p2.individualCount > 0) meanW2 = mean(p2.individuals.fitnessScaling); else meanW2 = 0.0;
@@ -420,7 +421,12 @@ late()
 		meanBDMIp3 + "\t" + K1 + "\t" + K2 + "\t" + K3 + "\n",
 		append=T);
 	
-	if (sim.cycle >= T_max)
-		sim.simulationFinished();
+//	if (sim.cycle >= T_max)
+	//	sim.simulationFinished();
 }
+
+2000 late() {
+	sim.simulationFinished();
+}
+
 
