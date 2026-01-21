@@ -1,6 +1,7 @@
 // ============================================================
-//  3-pop nonWF hybrid model (SLiM 5.0)
-//  Purpose: competition × 2-locus BDMI; hybrids migrate to p3
+//  3-pop nonWF ANNUAL hybrid model (SLiM 5.0)
+//  Purpose: annual life cycle; competition × 2-locus BDMI (viability);
+//           hybrids migrate to p3; p3 is sexual with backcrossing
 // ============================================================
 
 
@@ -37,8 +38,7 @@ function (integer) hapIndex(object<Haplosome> g)
 	return 1;
 }
 
-
-function (numeric) oBDMIMultiplier(object<Individual> ind)
+function (numeric) orleachBDMIMultiplier(object<Individual> ind)
 {
 	i = hapIndex(ind.haploidGenome1);
 	j = hapIndex(ind.haploidGenome2);
@@ -76,8 +76,7 @@ function (numeric) oBDMIMultiplier(object<Individual> ind)
 	return w;
 }
 
-
-
+// Move hybrid-flagged offspring from p1/p2 into p3
 function (void) migrateFlaggedHybrids(void)
 {
 	migrants = c();
@@ -95,6 +94,7 @@ function (void) migrateFlaggedHybrids(void)
 	}
 }
 
+// Competition scaling: sets fitnessScaling = w_comp for each population
 function (void) applyCompetition(numeric K1, numeric K2, numeric K3)
 {
 	if (p1.individualCount > 0) {
@@ -131,11 +131,12 @@ function (void) applyCompetition(numeric K1, numeric K2, numeric K3)
 	}
 }
 
-function (void) applyoBDMI(void)
+// Apply BDMI multiplicatively to existing fitnessScaling (which already holds competition)
+function (void) applyOrleachBDMI(void)
 {
 	for (pop in sim.subpopulations) {
 		for (ind in pop.individuals) {
-			w_bdmi = oBDMIMultiplier(ind);
+			w_bdmi = orleachBDMIMultiplier(ind);
 			ind.setValue("w_bdmi", w_bdmi);
 			
 			ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
@@ -143,6 +144,25 @@ function (void) applyoBDMI(void)
 		}
 	}
 }
+
+//////////////////////////////
+//  SURVIVAL (ANNUAL: cull adults; viability selection on juveniles)
+
+survival()
+{
+	// keep adults alive through the cycle (so they can reproduce)
+	if (individual.age > 0)
+		return T;
+	
+	// viability selection on juveniles
+	p = individual.fitnessScaling;
+	if (p < 0.01) p = 0.01;
+	if (p > 0.99) p = 0.99;
+	return (runif(1) < p);
+}
+
+
+
 
 
 //////////////////////////////
@@ -163,7 +183,6 @@ initialize()
 	m2.convertToSubstitution = F;
 	
 	initializeGenomicElementType("g1", c(m1, m2), c(0.5, 0.5));
-	
 	initializeGenomicElement(g1, 0, L-1);
 	
 	defineConstant("MU", 0.0);
@@ -194,17 +213,14 @@ initialize()
 	defineConstant("c_p2", 0.3);
 	defineConstant("c_p3", 0.5);
 	
-	defineConstant("surv_k", 3.0);
-	defineConstant("surv_theta", 0.6);
-	
 	defineConstant("s",  0.10);
 	defineConstant("h",  0.50);
 	defineConstant("sb", 0.30);
 	defineConstant("hb", 0.50);
 	defineConstant("kb", 1.00);
 	
-	defineConstant("T_max", 150);
-	defineConstant("OUTFILE", "output_o_bdmi.txt");
+	defineConstant("T_max", 2000);
+	defineConstant("OUTFILE", "output_base_annual.txt");
 }
 
 
@@ -230,14 +246,11 @@ initialize()
 		addAllele(ind.haploidGenome1, m2, posB);
 		addAllele(ind.haploidGenome2, m2, posB);
 	}
-
-
-
 }
 
 
 //////////////////////////////
-//  REPRODUCTION (HYBRIDS FLAGGED -> MIGRATE TO P3)
+//  REPRODUCTION (ANNUAL: create offspring, then cull adults in late())
 
 reproduction()
 {
@@ -246,9 +259,9 @@ reproduction()
 	
 	fertilizationRate = max(dd_rate0 * exp(-dd_c * density), dd_floor);
 	
-	if (totalPop >= K_total)
-		return;
+	// for annuals, allow reproduction even if at/over K; viability selection will regulate
 	
+	// p1: within p1 normally; hybridize with p2 or p3 at hybridizationRate -> offspring migrates to p3
 	if (subpop == p1) {
 		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10));
 		for (i in seqLen(n)) {
@@ -275,6 +288,7 @@ reproduction()
 		return;
 	}
 	
+	// p2: within p2 normally; hybridize with p1 or p3 at hybridizationRate -> offspring migrates to p3
 	if (subpop == p2) {
 		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10));
 		for (i in seqLen(n)) {
@@ -301,10 +315,10 @@ reproduction()
 		return;
 	}
 	
+	// p3: sexual; mate within p3 normally; backcross to p1/p2 at hybridizationRate; offspring stays in p3
 	if (subpop == p3) {
 		n = asInteger(min(rbinom(1, maxOvules_p3, fertilizationRate), 10));
 		for (i in seqLen(n)) {
-			
 			doBackcross = (runif(1) < hybridizationRate);
 			
 			if (doBackcross) {
@@ -312,11 +326,10 @@ reproduction()
 				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
 				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
 				
-				if (size(candidates) > 0) {
+				if (size(candidates) > 0)
 					mate = sample(candidates, 1);
-				} else {
+				else
 					mate = sample(p3.individuals, 1);
-				}
 			} else {
 				mate = sample(p3.individuals, 1);
 			}
@@ -329,23 +342,28 @@ reproduction()
 
 
 //////////////////////////////
-//  FITNESS ASSEMBLY (RESET -> MIGRATE -> COMP -> BDMI)
+//  FITNESS ASSEMBLY (EACH GEN: MIGRATE -> RESET -> COMP -> BDMI)
 
 early()
 {
+	// 1) move hybrid offspring into p3 (must happen before competition)
+	migrateFlaggedHybrids();
+	
+	// 2) reset fitnessScaling so it doesn't accumulate
 	for (pop in sim.subpopulations)
 		for (ind in pop.individuals)
 			ind.fitnessScaling = 1.0;
 	
-	migrateFlaggedHybrids();
-	
+	// 3) compute K's
 	K1 = K_total * K_prop_p1;
 	K2 = K_total * K_prop_p2;
 	K3 = K_total * K_prop_p3;
 	
+	// 4) assemble multiplicative fitnessScaling = w_comp * w_bdmi
 	applyCompetition(K1, K2, K3);
-	applyoBDMI();
+	applyOrleachBDMI();
 	
+	// 5) store for output()
 	sim.setValue("K1", K1);
 	sim.setValue("K2", K2);
 	sim.setValue("K3", K3);
@@ -353,38 +371,30 @@ early()
 
 
 //////////////////////////////
-//  SURVIVAL (LOGISTIC FILTER ON fitnessScaling)
-
-survival()
-{
-	w = individual.fitnessScaling;
-	p = 1.0 / (1.0 + exp(-surv_k * (w - surv_theta)));
-	return (runif(1) < p);
-}
-
-
-
-//////////////////////////////
 //  OUTPUT + STOP
 
 late()
 {
-	if (p1.individualCount > 0)
-		meanW1 = mean(p1.individuals.fitnessScaling);
-	else
-		meanW1 = 0.0;
 	
-	if (p2.individualCount > 0)
-		meanW2 = mean(p2.individuals.fitnessScaling);
-	else
-		meanW2 = 0.0;
-	
-	if (p3.individualCount > 0)
-		meanW3 = mean(p3.individuals.fitnessScaling);
-	else
-		meanW3 = 0.0;
+	catn("LATE: cycle=" + sim.cycle + " N=" + (p1.individualCount + p2.individualCount + p3.individualCount));
 	
 	
+	
+	// cull all adults (annual life cycle: adults die after reproducing once)
+	old = c(p1.individuals[p1.individuals.age > 0],
+		p2.individuals[p2.individuals.age > 0],
+		p3.individuals[p3.individuals.age > 0]);
+	
+	if (size(old) > 0)
+		sim.killIndividuals(old);
+	
+	
+	// ---- Mean fitnessScaling per population (after survival this generation)
+	if (p1.individualCount > 0) meanW1 = mean(p1.individuals.fitnessScaling); else meanW1 = 0.0;
+	if (p2.individualCount > 0) meanW2 = mean(p2.individuals.fitnessScaling); else meanW2 = 0.0;
+	if (p3.individualCount > 0) meanW3 = mean(p3.individuals.fitnessScaling); else meanW3 = 0.0;
+	
+	// ---- Mean BDMI in p3
 	meanBDMIp3 = 0.0;
 	if (p3.individualCount > 0) {
 		sumBD = 0.0;
@@ -396,6 +406,7 @@ late()
 		meanBDMIp3 = sumBD / p3.individualCount;
 	}
 	
+	// ---- K values (stored in early())
 	K1 = sim.getValue("K1");
 	K2 = sim.getValue("K2");
 	K3 = sim.getValue("K3");
@@ -412,3 +423,4 @@ late()
 	if (sim.cycle >= T_max)
 		sim.simulationFinished();
 }
+
