@@ -38,7 +38,7 @@ function (integer) hapIndex(object<Haplosome> g)
 }
 
 
-function (numeric) orleachBDMIMultiplier(object<Individual> ind)
+function (numeric) oBDMIMultiplier(object<Individual> ind)
 {
 	i = hapIndex(ind.haploidGenome1);
 	j = hapIndex(ind.haploidGenome2);
@@ -131,11 +131,11 @@ function (void) applyCompetition(numeric K1, numeric K2, numeric K3)
 	}
 }
 
-function (void) applyOrleachBDMI(void)
+function (void) applyoBDMI(void)
 {
 	for (pop in sim.subpopulations) {
 		for (ind in pop.individuals) {
-			w_bdmi = orleachBDMIMultiplier(ind);
+			w_bdmi = oBDMIMultiplier(ind);
 			ind.setValue("w_bdmi", w_bdmi);
 			
 			ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
@@ -204,7 +204,7 @@ initialize()
 	defineConstant("kb", 1.00);
 	
 	defineConstant("T_max", 150);
-	defineConstant("OUTFILE", "output_orleach_bdmi.txt");
+	defineConstant("OUTFILE", "output_o_bdmi.txt");
 }
 
 
@@ -344,7 +344,7 @@ early()
 	K3 = K_total * K_prop_p3;
 	
 	applyCompetition(K1, K2, K3);
-	applyOrleachBDMI();
+	applyoBDMI();
 	
 	sim.setValue("K1", K1);
 	sim.setValue("K2", K2);
