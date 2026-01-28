@@ -139,26 +139,32 @@ function (void) migrateFlaggedHybrids(void)
 	}
 }
 
-// MacArthur-style trait-overlap competition:
-//   D_i = sum_j exp(-(z_i - z_j)^2 / (2*sigma_c^2))
-//   w_comp,i = exp(-gamma_comp * D_i)
-// Implemented via InteractionType i1 using x-position = z, y=0
 function (void) applyMacArthurCompetition(void)
 {
-	// Evaluate Gaussian overlap kernel across all individuals
-	i1.evaluate(sim.subpopulations);
+    // SAFETY: ensure everyone has a spatial position (prevents evaluate() crashes)
+    for (pop in sim.subpopulations) {
+        for (ind in pop.individuals) {
+            // if z is missing, define it
+            z = ind.getValue("z");
+            if (isNULL(z)) { z = 0.0; ind.setValue("z", z); }
 
-	// Convert crowding -> w_comp, set fitnessScaling
-	for (pop in sim.subpopulations) {
-		for (ind in pop.individuals) {
-			Di = i1.totalOfNeighborStrengths(ind);
-			w_comp = exp(-gamma_comp * Di);
+            // always ensure position matches z
+            ind.setSpatialPosition(c(z, 0.0));
+        }
+    }
 
-			if (w_comp < 0.01) w_comp = 0.01;
-			ind.fitnessScaling = w_comp;
-		}
-	}
+    i1.evaluate(sim.subpopulations);
+
+    for (pop in sim.subpopulations) {
+        for (ind in pop.individuals) {
+            Di = i1.totalOfNeighborStrengths(ind);
+            w_comp = exp(-gamma_comp * Di);
+            if (w_comp < 0.01) w_comp = 0.01;
+            ind.fitnessScaling = w_comp;
+        }
+    }
 }
+
 
 // Apply BDMI multiplicatively to existing fitnessScaling (which already holds competition)
 function (void) applyOrleachBDMI(void)
@@ -403,30 +409,32 @@ early()
 
 
 //////////////////////////////
-//  OUTPUT + STOP
-
 late()
 {
-    // Fast allele frequencies (no explicit loops over individuals)
-    pA2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m1)); if (size(pA2_p1)==0) pA2_p1=0.0;
-    pB2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m2)); if (size(pB2_p1)==0) pB2_p1=0.0;
+    if (p1.individualCount > 0) {
+        pA2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m1)); if (size(pA2_p1)==0) pA2_p1=0.0;
+        pB2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m2)); if (size(pB2_p1)==0) pB2_p1=0.0;
+    } else { pA2_p1 = 0.0; pB2_p1 = 0.0; }
 
-    pA2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m1)); if (size(pA2_p2)==0) pA2_p2=0.0;
-    pB2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m2)); if (size(pB2_p2)==0) pB2_p2=0.0;
+    if (p2.individualCount > 0) {
+        pA2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m1)); if (size(pA2_p2)==0) pA2_p2=0.0;
+        pB2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m2)); if (size(pB2_p2)==0) pB2_p2=0.0;
+    } else { pA2_p2 = 0.0; pB2_p2 = 0.0; }
 
-    pA2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m1)); if (size(pA2_p3)==0) pA2_p3=0.0;
-    pB2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m2)); if (size(pB2_p3)==0) pB2_p3=0.0;
+    if (p3.individualCount > 0) {
+        pA2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m1)); if (size(pA2_p3)==0) pA2_p3=0.0;
+        pB2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m2)); if (size(pB2_p3)==0) pB2_p3=0.0;
+    } else { pA2_p3 = 0.0; pB2_p3 = 0.0; }
 
     writeFile(OUTFILE,
         sim.cycle + "\t" +
-        p1.individualCount + "\t" +
-        p2.individualCount + "\t" +
-        p3.individualCount + "\t" +
+        p1.individualCount + "\t" + p2.individualCount + "\t" + p3.individualCount + "\t" +
         pA2_p1 + "\t" + pB2_p1 + "\t" +
         pA2_p2 + "\t" + pB2_p2 + "\t" +
         pA2_p3 + "\t" + pB2_p3 + "\n",
         append=T);
 }
+
 
 
 2000 late()
