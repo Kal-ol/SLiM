@@ -1,11 +1,3 @@
-// ============================================================
-//  3-pop nonWF ANNUAL hybrid model (SLiM 5.0)
-//  Purpose: annual life cycle; MacArthur trait-overlap competition × 2-locus BDMI (viability);
-//           hybrids migrate to p3; p3 is sexual with backcrossing
-//  Update: ASSORTATIVE mating by trait z (preference for similar z)
-// ============================================================
-
-
 //////////////////////////////
 //  UTILITY FUNCTIONS
 
@@ -28,6 +20,7 @@ function (void) setOffspringTrait(object<Individual> kid, object<Individual> mom
 
 	// mid-parent + Gaussian noise
 	kid.setValue("z", (z1 + z2)/2.0 + rnorm(1, 0.0, sigma_z));
+	kid.setSpatialPosition(c(kid.getValue("z"), 0.0));
 }
 
 // ---- ASSORTATIVE mate choice by trait z (prefer similar z)
@@ -43,19 +36,19 @@ function (object<Individual>) chooseMateAssort(object<Individual> focal, object<
 	weights = c();
 
 	for (m in candidates) {
-		// optional self-exclusion to reduce selfing
-		if (excludeSelf & (m == focal))
-			continue;
+		// optional self-exclusion to reduce selfing (Eidos has no 'continue')
+		if (!(excludeSelf & (m == focal))) {
 
-		zm = m.getValue("z");
-		if (isNULL(zm)) zm = 0.0;
+			zm = m.getValue("z");
+			if (isNULL(zm)) zm = 0.0;
 
-		dz = zf - zm;
-		w = exp(-(dz*dz) / (2.0*sigma_m*sigma_m));  // similar -> ~1, different -> ~0
-		if (w < epsilon_w) w = epsilon_w;
+			dz = zf - zm;
+			w = exp(-(dz*dz) / (2.0*sigma_m*sigma_m));  // similar -> ~1, different -> ~0
+			if (w < epsilon_w) w = epsilon_w;
 
-		cands = c(cands, m);
-		weights = c(weights, w);
+			cands = c(cands, m);
+			weights = c(weights, w);
+		}
 	}
 
 	// If self was excluded and nothing left, fall back to uniform from original pool
@@ -152,15 +145,6 @@ function (void) migrateFlaggedHybrids(void)
 // Implemented via InteractionType i1 using x-position = z, y=0
 function (void) applyMacArthurCompetition(void)
 {
-	// Map trait z -> spatial x coordinate
-	for (pop in sim.subpopulations) {
-		for (ind in pop.individuals) {
-			z = ind.getValue("z");
-			if (isNULL(z)) z = 0.0;
-			ind.setSpatialPosition(c(z, 0.0));
-		}
-	}
-
 	// Evaluate Gaussian overlap kernel across all individuals
 	i1.evaluate(sim.subpopulations);
 
@@ -233,29 +217,25 @@ initialize()
 	initializeMutationRate(MU);
 	initializeRecombinationRate(1e-3);
 
-	// fecundity density dependence (kept as-is)
-	defineConstant("K_prop_p1", 0.38375);
-	defineConstant("K_prop_p2", 0.38375);
-	defineConstant("K_prop_p3", 0.23250);
-
+	// fecundity parameters
 	defineConstant("maxOvules_p1p2", 12);
 	defineConstant("maxOvules_p3",   7);
+	defineConstant("dd_rate0", 0.75);           // constant fertilization rate
 
+	// hybridization attempts
 	defineConstant("hybridizationRate", 0.05);
 
-	defineConstant("dd_rate0", 0.75);
-
 	// ---- MacArthur competition parameters (trait overlap kernel)
-	defineConstant("sigma_c",   0.20);  // niche width in trait space
-	defineConstant("maxDist_c", 1.00);  // truncate neighbor search beyond this |Δz|
-	defineConstant("gamma_comp", 0.02); // strength: crowding -> viability
+	defineConstant("sigma_c",    0.20);  // niche width in trait space
+	defineConstant("maxDist_c", 0.60);  // 3 * 0.20
+	defineConstant("gamma_comp", 0.02);  // strength: crowding -> viability
 
 	// trait inheritance noise
 	defineConstant("sigma_z", 0.05);
 
 	// ---- ASSORTATIVE mate choice parameters
-	defineConstant("sigma_m",   0.15);  // mate preference width (smaller = stronger assortative)
-	defineConstant("epsilon_w", 1e-6);
+	defineConstant("sigma_m",    0.15);  // smaller = stronger assortative
+	defineConstant("epsilon_w",  1e-6);
 	defineConstant("excludeSelf", T);
 
 	// Gaussian kernel competition in "xy" space (we'll place individuals at (z,0))
@@ -279,31 +259,29 @@ initialize()
 
 1 first()
 {
-	// ---- create founding populations BEFORE first reproduction
-	sim.addSubpop("p1", 100);
-	sim.addSubpop("p2", 150);
-	sim.addSubpop("p3", 0);
+    // create founding populations
+    sim.addSubpop("p1", 100);
+    sim.addSubpop("p2", 150);
+    sim.addSubpop("p3", 0);
 
-	// ---- output header
-	writeFile(OUTFILE,
-		"gen\tN1\tN2\tN3\tmeanW_p1\tmeanW_p2\tmeanW_p3\tmeanBDMI_p3\tK1\tK2\tK3\n",
-		append=F);
+    // fix parental genotypes
+    for (ind in p1.individuals) {
+        addAllele(ind.haploidGenome1, m1, posA);
+        addAllele(ind.haploidGenome2, m1, posA);
+    }
+    for (ind in p2.individuals) {
+        addAllele(ind.haploidGenome1, m2, posB);
+        addAllele(ind.haploidGenome2, m2, posB);
+    }
 
-	// ---- fix parental genotypes
-	for (ind in p1.individuals) {
-		addAllele(ind.haploidGenome1, m1, posA);
-		addAllele(ind.haploidGenome2, m1, posA);
-	}
-	for (ind in p2.individuals) {
-		addAllele(ind.haploidGenome1, m2, posB);
-		addAllele(ind.haploidGenome2, m2, posB);
-	}
+    // assign initial trait values
+    for (ind in p1.individuals) ind.setValue("z", -0.5);
+    for (ind in p2.individuals) ind.setValue("z",  0.5);
 
-	// ---- initial trait means (parents start separated; change if you want overlap)
-	for (ind in p1.individuals) ind.setValue("z", -0.5);
-	for (ind in p2.individuals) ind.setValue("z",  0.5);
+    // ★ ADD THESE LINES RIGHT HERE ★
+    for (ind in p1.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
+    for (ind in p2.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
 }
-
 
 //////////////////////////////
 //  REPRODUCTION (ANNUAL: create offspring; adults die via survival())
@@ -311,8 +289,7 @@ initialize()
 reproduction()
 {
 	// Constant fertilization rate (no density dependence)
-fertilizationRate = dd_rate0;
-
+	fertilizationRate = dd_rate0;
 
 	// p1: within p1 normally; hybridize with p2 or p3 at hybridizationRate -> offspring migrates to p3
 	if (subpop == p1) {
@@ -414,14 +391,9 @@ early()
 		for (ind in pop.individuals)
 			ind.fitnessScaling = 1.0;
 
-	// 4) assemble multiplicative fitnessScaling = w_comp(trait overlap) * w_bdmi
+	// 3) assemble multiplicative fitnessScaling = w_comp(trait overlap) * w_bdmi
 	applyMacArthurCompetition();
 	applyOrleachBDMI();
-
-	// 5) store for output()
-	sim.setValue("K1", K1);
-	sim.setValue("K2", K2);
-	sim.setValue("K3", K3);
 }
 
 
@@ -430,8 +402,6 @@ early()
 
 late()
 {
-	catn("LATE: cycle=" + sim.cycle + " N=" + (p1.individualCount + p2.individualCount + p3.individualCount));
-
 	// ---- Mean fitnessScaling per population
 	if (p1.individualCount > 0) meanW1 = mean(p1.individuals.fitnessScaling); else meanW1 = 0.0;
 	if (p2.individualCount > 0) meanW2 = mean(p2.individuals.fitnessScaling); else meanW2 = 0.0;
@@ -449,18 +419,13 @@ late()
 		meanBDMIp3 = sumBD / p3.individualCount;
 	}
 
-	// ---- K values (stored in early())
-	K1 = sim.getValue("K1");
-	K2 = sim.getValue("K2");
-	K3 = sim.getValue("K3");
-
 	writeFile(OUTFILE,
 		sim.cycle + "\t" +
 		p1.individualCount + "\t" +
 		p2.individualCount + "\t" +
 		p3.individualCount + "\t" +
 		meanW1 + "\t" + meanW2 + "\t" + meanW3 + "\t" +
-		meanBDMIp3 + "\t" + K1 + "\t" + K2 + "\t" + K3 + "\n",
+		meanBDMIp3 + "\n",
 		append=T);
 }
 
@@ -468,5 +433,3 @@ late()
 {
 	sim.simulationFinished();
 }
-
-
