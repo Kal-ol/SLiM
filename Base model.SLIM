@@ -2,6 +2,7 @@
 //  3-pop nonWF ANNUAL hybrid model (SLiM 5.0)
 //  Purpose: annual life cycle; MacArthur trait-overlap competition × 2-locus BDMI (viability);
 //           hybrids migrate to p3; p3 is sexual with backcrossing
+//  Update: ASSORTATIVE mating by trait z (preference for similar z)
 // ============================================================
 
 
@@ -27,6 +28,45 @@ function (void) setOffspringTrait(object<Individual> kid, object<Individual> mom
 
 	// mid-parent + Gaussian noise
 	kid.setValue("z", (z1 + z2)/2.0 + rnorm(1, 0.0, sigma_z));
+}
+
+// ---- ASSORTATIVE mate choice by trait z (prefer similar z)
+function (object<Individual>) chooseMateAssort(object<Individual> focal, object<Individual> candidates)
+{
+	if (size(candidates) == 0)
+		return NULL;
+
+	zf = focal.getValue("z");
+	if (isNULL(zf)) zf = 0.0;
+
+	cands = c();
+	weights = c();
+
+	for (m in candidates) {
+		// optional self-exclusion to reduce selfing
+		if (excludeSelf & (m == focal))
+			continue;
+
+		zm = m.getValue("z");
+		if (isNULL(zm)) zm = 0.0;
+
+		dz = zf - zm;
+		w = exp(-(dz*dz) / (2.0*sigma_m*sigma_m));  // similar -> ~1, different -> ~0
+		if (w < epsilon_w) w = epsilon_w;
+
+		cands = c(cands, m);
+		weights = c(weights, w);
+	}
+
+	// If self was excluded and nothing left, fall back to uniform from original pool
+	if (size(cands) == 0)
+		return sample(candidates, 1);
+
+	// Safety fallback
+	if (sum(weights) <= 0.0)
+		return sample(cands, 1);
+
+	return sample(cands, 1, weights=weights);
 }
 
 function (integer) hapIndex(object<Haplosome> g)
@@ -194,7 +234,6 @@ initialize()
 	initializeRecombinationRate(1e-3);
 
 	// fecundity density dependence (kept as-is)
-	defineConstant("K_total", 2500.0);
 	defineConstant("K_prop_p1", 0.38375);
 	defineConstant("K_prop_p2", 0.38375);
 	defineConstant("K_prop_p3", 0.23250);
@@ -205,8 +244,6 @@ initialize()
 	defineConstant("hybridizationRate", 0.05);
 
 	defineConstant("dd_rate0", 0.75);
-	defineConstant("dd_c",     2.0);
-	defineConstant("dd_floor", 0.01);
 
 	// ---- MacArthur competition parameters (trait overlap kernel)
 	defineConstant("sigma_c",   0.20);  // niche width in trait space
@@ -215,6 +252,11 @@ initialize()
 
 	// trait inheritance noise
 	defineConstant("sigma_z", 0.05);
+
+	// ---- ASSORTATIVE mate choice parameters
+	defineConstant("sigma_m",   0.15);  // mate preference width (smaller = stronger assortative)
+	defineConstant("epsilon_w", 1e-6);
+	defineConstant("excludeSelf", T);
 
 	// Gaussian kernel competition in "xy" space (we'll place individuals at (z,0))
 	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=maxDist_c);
@@ -268,10 +310,9 @@ initialize()
 
 reproduction()
 {
-	totalPop = p1.individualCount + p2.individualCount + p3.individualCount;
-	density  = totalPop / K_total;
+	// Constant fertilization rate (no density dependence)
+fertilizationRate = dd_rate0;
 
-	fertilizationRate = max(dd_rate0 * exp(-dd_c * density), dd_floor);
 
 	// p1: within p1 normally; hybridize with p2 or p3 at hybridizationRate -> offspring migrates to p3
 	if (subpop == p1) {
@@ -285,17 +326,17 @@ reproduction()
 				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
 
 				if (size(candidates) > 0) {
-					mate = sample(candidates, 1);
+					mate = chooseMateAssort(individual, candidates);
 					kid  = subpop.addCrossed(individual, mate);
 					kid.setValue("migrateToP3", T);
 					setOffspringTrait(kid, individual, mate);
 				} else {
-					mate = sample(p1.individuals, 1);
+					mate = chooseMateAssort(individual, p1.individuals);
 					kid  = subpop.addCrossed(individual, mate);
 					setOffspringTrait(kid, individual, mate);
 				}
 			} else {
-				mate = sample(p1.individuals, 1);
+				mate = chooseMateAssort(individual, p1.individuals);
 				kid  = subpop.addCrossed(individual, mate);
 				setOffspringTrait(kid, individual, mate);
 			}
@@ -315,17 +356,17 @@ reproduction()
 				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
 
 				if (size(candidates) > 0) {
-					mate = sample(candidates, 1);
+					mate = chooseMateAssort(individual, candidates);
 					kid  = subpop.addCrossed(individual, mate);
 					kid.setValue("migrateToP3", T);
 					setOffspringTrait(kid, individual, mate);
 				} else {
-					mate = sample(p2.individuals, 1);
+					mate = chooseMateAssort(individual, p2.individuals);
 					kid  = subpop.addCrossed(individual, mate);
 					setOffspringTrait(kid, individual, mate);
 				}
 			} else {
-				mate = sample(p2.individuals, 1);
+				mate = chooseMateAssort(individual, p2.individuals);
 				kid  = subpop.addCrossed(individual, mate);
 				setOffspringTrait(kid, individual, mate);
 			}
@@ -345,11 +386,11 @@ reproduction()
 				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
 
 				if (size(candidates) > 0)
-					mate = sample(candidates, 1);
+					mate = chooseMateAssort(individual, candidates);
 				else
-					mate = sample(p3.individuals, 1);
+					mate = chooseMateAssort(individual, p3.individuals);
 			} else {
-				mate = sample(p3.individuals, 1);
+				mate = chooseMateAssort(individual, p3.individuals);
 			}
 
 			kid = subpop.addCrossed(individual, mate);
@@ -372,11 +413,6 @@ early()
 	for (pop in sim.subpopulations)
 		for (ind in pop.individuals)
 			ind.fitnessScaling = 1.0;
-
-	// 3) compute K's (kept for output / fecundity density, not used in competition now)
-	K1 = K_total * K_prop_p1;
-	K2 = K_total * K_prop_p2;
-	K3 = K_total * K_prop_p3;
 
 	// 4) assemble multiplicative fitnessScaling = w_comp(trait overlap) * w_bdmi
 	applyMacArthurCompetition();
@@ -432,4 +468,5 @@ late()
 {
 	sim.simulationFinished();
 }
+
 
