@@ -10,6 +10,28 @@ function (void) addAllele(object<Haplosome> g, object<MutationType> mt, integer 
 	g.addNewDrawnMutation(mt, pos);
 }
 
+function (numeric) freqAtPos(object<Subpopulation> pop, object<MutationType> mt, integer pos)
+{
+	muts = sim.mutationsOfType(mt);
+	if (size(muts) == 0)
+		return 0.0;
+
+	// find mutation object at the focal position
+	target = NULL;
+	for (mu in muts) {
+		if (mu.position == pos) { target = mu; break; }
+	}
+	if (isNULL(target))
+		return 0.0;
+
+	f = sim.mutationFrequencies(pop, target);  // returns a vector
+	if (size(f) == 0)
+		return 0.0;
+
+	return f[0];  // scalar
+}
+
+
 // ---- Trait inheritance: mid-parent + noise (placeholder quantitative genetics)
 function (void) setOffspringTrait(object<Individual> kid, object<Individual> mom, object<Individual> dad)
 {
@@ -408,32 +430,26 @@ early()
 }
 
 
-//////////////////////////////
 late()
 {
-    if (p1.individualCount > 0) {
-        pA2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m1)); if (size(pA2_p1)==0) pA2_p1=0.0;
-        pB2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m2)); if (size(pB2_p1)==0) pB2_p1=0.0;
-    } else { pA2_p1 = 0.0; pB2_p1 = 0.0; }
+	pA2_p1 = (p1.individualCount > 0) ? freqAtPos(p1, m1, posA) : 0.0;
+	pB2_p1 = (p1.individualCount > 0) ? freqAtPos(p1, m2, posB) : 0.0;
 
-    if (p2.individualCount > 0) {
-        pA2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m1)); if (size(pA2_p2)==0) pA2_p2=0.0;
-        pB2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m2)); if (size(pB2_p2)==0) pB2_p2=0.0;
-    } else { pA2_p2 = 0.0; pB2_p2 = 0.0; }
+	pA2_p2 = (p2.individualCount > 0) ? freqAtPos(p2, m1, posA) : 0.0;
+	pB2_p2 = (p2.individualCount > 0) ? freqAtPos(p2, m2, posB) : 0.0;
 
-    if (p3.individualCount > 0) {
-        pA2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m1)); if (size(pA2_p3)==0) pA2_p3=0.0;
-        pB2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m2)); if (size(pB2_p3)==0) pB2_p3=0.0;
-    } else { pA2_p3 = 0.0; pB2_p3 = 0.0; }
+	pA2_p3 = (p3.individualCount > 0) ? freqAtPos(p3, m1, posA) : 0.0;
+	pB2_p3 = (p3.individualCount > 0) ? freqAtPos(p3, m2, posB) : 0.0;
 
-    writeFile(OUTFILE,
-        sim.cycle + "\t" +
-        p1.individualCount + "\t" + p2.individualCount + "\t" + p3.individualCount + "\t" +
-        pA2_p1 + "\t" + pB2_p1 + "\t" +
-        pA2_p2 + "\t" + pB2_p2 + "\t" +
-        pA2_p3 + "\t" + pB2_p3 + "\n",
-        append=T);
+	writeFile(OUTFILE,
+		sim.cycle + "\t" +
+		p1.individualCount + "\t" + p2.individualCount + "\t" + p3.individualCount + "\t" +
+		pA2_p1 + "\t" + pB2_p1 + "\t" +
+		pA2_p2 + "\t" + pB2_p2 + "\t" +
+		pA2_p3 + "\t" + pB2_p3 + "\n",
+		append=T);
 }
+
 
 
 
