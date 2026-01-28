@@ -166,7 +166,6 @@ function (void) applyOrleachBDMI(void)
 	for (pop in sim.subpopulations) {
 		for (ind in pop.individuals) {
 			w_bdmi = orleachBDMIMultiplier(ind);
-			ind.setValue("w_bdmi", w_bdmi);
 
 			ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
 			if (ind.fitnessScaling < 0.01) ind.fitnessScaling = 0.01;
@@ -281,6 +280,12 @@ initialize()
     // ★ ADD THESE LINES RIGHT HERE ★
     for (ind in p1.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
     for (ind in p2.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
+
+	writeFile(OUTFILE,
+    "gen\tN1\tN2\tN3\t" +
+    "pA2_p1\tpB2_p1\tpA2_p2\tpB2_p2\tpA2_p3\tpB2_p3\n",
+    append=F);
+
 }
 
 //////////////////////////////
@@ -402,32 +407,27 @@ early()
 
 late()
 {
-	// ---- Mean fitnessScaling per population
-	if (p1.individualCount > 0) meanW1 = mean(p1.individuals.fitnessScaling); else meanW1 = 0.0;
-	if (p2.individualCount > 0) meanW2 = mean(p2.individuals.fitnessScaling); else meanW2 = 0.0;
-	if (p3.individualCount > 0) meanW3 = mean(p3.individuals.fitnessScaling); else meanW3 = 0.0;
+    // Fast allele frequencies (no explicit loops over individuals)
+    pA2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m1)); if (size(pA2_p1)==0) pA2_p1=0.0;
+    pB2_p1 = sim.mutationFrequencies(p1, sim.mutationsOfType(m2)); if (size(pB2_p1)==0) pB2_p1=0.0;
 
-	// ---- Mean BDMI in p3
-	meanBDMIp3 = 0.0;
-	if (p3.individualCount > 0) {
-		sumBD = 0.0;
-		for (ind in p3.individuals) {
-			v = ind.getValue("w_bdmi");
-			if (isNULL(v)) v = 1.0;
-			sumBD = sumBD + v;
-		}
-		meanBDMIp3 = sumBD / p3.individualCount;
-	}
+    pA2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m1)); if (size(pA2_p2)==0) pA2_p2=0.0;
+    pB2_p2 = sim.mutationFrequencies(p2, sim.mutationsOfType(m2)); if (size(pB2_p2)==0) pB2_p2=0.0;
 
-	writeFile(OUTFILE,
-		sim.cycle + "\t" +
-		p1.individualCount + "\t" +
-		p2.individualCount + "\t" +
-		p3.individualCount + "\t" +
-		meanW1 + "\t" + meanW2 + "\t" + meanW3 + "\t" +
-		meanBDMIp3 + "\n",
-		append=T);
+    pA2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m1)); if (size(pA2_p3)==0) pA2_p3=0.0;
+    pB2_p3 = sim.mutationFrequencies(p3, sim.mutationsOfType(m2)); if (size(pB2_p3)==0) pB2_p3=0.0;
+
+    writeFile(OUTFILE,
+        sim.cycle + "\t" +
+        p1.individualCount + "\t" +
+        p2.individualCount + "\t" +
+        p3.individualCount + "\t" +
+        pA2_p1 + "\t" + pB2_p1 + "\t" +
+        pA2_p2 + "\t" + pB2_p2 + "\t" +
+        pA2_p3 + "\t" + pB2_p3 + "\n",
+        append=T);
 }
+
 
 2000 late()
 {
