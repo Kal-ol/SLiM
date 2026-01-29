@@ -250,7 +250,7 @@ initialize()
 	defineConstant("dd_rate0", 0.75);           // constant fertilization rate
 
 	// hybridization attempts
-	defineConstant("hybridizationRate", 0.05);
+	defineConstant("hybridizationRate", 0.01);
 
 	// ---- MacArthur competition parameters (trait overlap kernel)
 	defineConstant("sigma_c",    0.20);  // niche width in trait space
@@ -305,7 +305,7 @@ initialize()
     for (ind in p1.individuals) ind.setValue("z", -0.5);
     for (ind in p2.individuals) ind.setValue("z",  0.5);
 
-    // ★ ADD THESE LINES RIGHT HERE ★
+    // ADD THESE LINES RIGHT HERE 
     for (ind in p1.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
     for (ind in p2.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
 
@@ -432,28 +432,34 @@ early()
 
 late()
 {
-	pA2_p1 = (p1.individualCount > 0) ? freqAtPos(p1, m1, posA) : 0.0;
-	pB2_p1 = (p1.individualCount > 0) ? freqAtPos(p1, m2, posB) : 0.0;
+    // default values (so empty pops don't crash anything)
+    pA2_p1 = 0.0;  pB2_p1 = 0.0;
+    pA2_p2 = 0.0;  pB2_p2 = 0.0;
+    pA2_p3 = 0.0;  pB2_p3 = 0.0;
 
-	pA2_p2 = (p2.individualCount > 0) ? freqAtPos(p2, m1, posA) : 0.0;
-	pB2_p2 = (p2.individualCount > 0) ? freqAtPos(p2, m2, posB) : 0.0;
+    if (p1.individualCount > 0) {
+        pA2_p1 = freqAtPos(p1, m1, posA);
+        pB2_p1 = freqAtPos(p1, m2, posB);
+    }
+    if (p2.individualCount > 0) {
+        pA2_p2 = freqAtPos(p2, m1, posA);
+        pB2_p2 = freqAtPos(p2, m2, posB);
+    }
+    if (p3.individualCount > 0) {
+        pA2_p3 = freqAtPos(p3, m1, posA);
+        pB2_p3 = freqAtPos(p3, m2, posB);
+    }
 
-	pA2_p3 = (p3.individualCount > 0) ? freqAtPos(p3, m1, posA) : 0.0;
-	pB2_p3 = (p3.individualCount > 0) ? freqAtPos(p3, m2, posB) : 0.0;
-
-	writeFile(OUTFILE,
-		sim.cycle + "\t" +
-		p1.individualCount + "\t" + p2.individualCount + "\t" + p3.individualCount + "\t" +
-		pA2_p1 + "\t" + pB2_p1 + "\t" +
-		pA2_p2 + "\t" + pB2_p2 + "\t" +
-		pA2_p3 + "\t" + pB2_p3 + "\n",
-		append=T);
+    writeFile(OUTFILE,
+        sim.cycle + "\t" +
+        p1.individualCount + "\t" + p2.individualCount + "\t" + p3.individualCount + "\t" +
+        pA2_p1 + "\t" + pB2_p1 + "\t" +
+        pA2_p2 + "\t" + pB2_p2 + "\t" +
+        pA2_p3 + "\t" + pB2_p3 + "\n",
+        append=T);
 }
-
-
-
 
 2000 late()
 {
-	sim.simulationFinished();
+    sim.simulationFinished();
 }
