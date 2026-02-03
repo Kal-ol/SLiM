@@ -105,7 +105,8 @@ function (integer) hapIndex(object<Haplosome> g)
 	return 1;
 }
 
-function (numeric) orleachBDMIMultiplier(object<Individual> ind)
+// ---- Two-locus BDMI viability multiplier (generic)
+function (numeric) bdmiMultiplier(object<Individual> ind)
 {
 	i = hapIndex(ind.haploidGenome1);
 	j = hapIndex(ind.haploidGenome2);
@@ -189,11 +190,11 @@ function (void) applyMacArthurCompetition(void)
 
 
 // Apply BDMI multiplicatively to existing fitnessScaling (which already holds competition)
-function (void) applyOrleachBDMI(void)
+function (void) applyBDMI(void)
 {
 	for (pop in sim.subpopulations) {
 		for (ind in pop.individuals) {
-			w_bdmi = orleachBDMIMultiplier(ind);
+			w_bdmi = bdmiMultiplier(ind);
 
 			ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
 			if (ind.fitnessScaling < 0.01) ind.fitnessScaling = 0.01;
@@ -305,7 +306,7 @@ initialize()
     for (ind in p1.individuals) ind.setValue("z", -0.5);
     for (ind in p2.individuals) ind.setValue("z",  0.5);
 
-    // ADD THESE LINES RIGHT HERE 
+    // ensure spatial position matches z immediately (needed for InteractionType evaluation)
     for (ind in p1.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
     for (ind in p2.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
 
@@ -426,7 +427,7 @@ early()
 
 	// 3) assemble multiplicative fitnessScaling = w_comp(trait overlap) * w_bdmi
 	applyMacArthurCompetition();
-	applyOrleachBDMI();
+	applyBDMI();
 }
 
 
