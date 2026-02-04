@@ -15,7 +15,7 @@ function (numeric) freqAtPos(object<Subpopulation> pop, object<MutationType> mt,
 	muts = sim.mutationsOfType(mt);
 	if (size(muts) == 0)
 		return 0.0;
-
+	
 	// find mutation object at the focal position
 	target = NULL;
 	for (mu in muts) {
@@ -23,11 +23,11 @@ function (numeric) freqAtPos(object<Subpopulation> pop, object<MutationType> mt,
 	}
 	if (isNULL(target))
 		return 0.0;
-
+	
 	f = sim.mutationFrequencies(pop, target);  // returns a vector
 	if (size(f) == 0)
 		return 0.0;
-
+	
 	return f[0];  // scalar
 }
 
@@ -39,7 +39,7 @@ function (void) setOffspringTrait(object<Individual> kid, object<Individual> mom
 	z2 = dad.getValue("z");
 	if (isNULL(z1)) z1 = 0.0;
 	if (isNULL(z2)) z2 = 0.0;
-
+	
 	// mid-parent + Gaussian noise
 	kid.setValue("z", (z1 + z2)/2.0 + rnorm(1, 0.0, sigma_z));
 	kid.setSpatialPosition(c(kid.getValue("z"), 0.0));
@@ -50,53 +50,68 @@ function (object<Individual>) chooseMateAssort(object<Individual> focal, object<
 {
 	if (size(candidates) == 0)
 		return NULL;
-
+	
 	zf = focal.getValue("z");
 	if (isNULL(zf)) zf = 0.0;
-
+	
 	cands = c();
 	weights = c();
-
+	
 	for (m in candidates) {
-		// optional self-exclusion to reduce selfing (Eidos has no 'continue')
-		if (!(excludeSelf & (m == focal))) {
-
+		
+		// Self-exclusion implemented WITHOUT boolean operators
+		if (excludeSelf) {
+			if (m != focal) {
+				zm = m.getValue("z");
+				if (isNULL(zm)) zm = 0.0;
+				
+				dz = zf - zm;
+				w  = exp(-(dz*dz) / (2.0*sigma_m*sigma_m));
+				if (w < epsilon_w) w = epsilon_w;
+				
+				cands   = c(cands, m);
+				weights = c(weights, w);
+			}
+		}
+		else {
+			// excludeSelf == F: include everyone (including focal if present)
 			zm = m.getValue("z");
 			if (isNULL(zm)) zm = 0.0;
-
+			
 			dz = zf - zm;
-			w = exp(-(dz*dz) / (2.0*sigma_m*sigma_m));  // similar -> ~1, different -> ~0
+			w  = exp(-(dz*dz) / (2.0*sigma_m*sigma_m));
 			if (w < epsilon_w) w = epsilon_w;
-
-			cands = c(cands, m);
+			
+			cands   = c(cands, m);
 			weights = c(weights, w);
 		}
 	}
-
+	
 	// If self was excluded and nothing left, fall back to uniform from original pool
 	if (size(cands) == 0)
 		return sample(candidates, 1);
-
+	
 	// Safety fallback
 	if (sum(weights) <= 0.0)
 		return sample(cands, 1);
-
+	
 	return sample(cands, 1, weights=weights);
 }
+
 
 function (integer) hapIndex(object<Haplosome> g)
 {
 	hasA2 = F;
 	hasB2 = F;
-
+	
 	a = g.mutationsOfType(m1);
 	if (size(a) > 0)
 		if (sum(a.position == posA) > 0) hasA2 = T;
-
+	
 	b = g.mutationsOfType(m2);
 	if (size(b) > 0)
 		if (sum(b.position == posB) > 0) hasB2 = T;
-
+	
 	if (hasA2) {
 		if (hasB2) return 4;
 		return 3;
@@ -105,56 +120,84 @@ function (integer) hapIndex(object<Haplosome> g)
 	return 1;
 }
 
-// ---- Two-locus BDMI viability multiplier (generic)
+// ---- Two-locus BDMI viability multiplier (Model 2: trans DMI)
+// Trigger: any A2 present anywhere AND any B2 present anywhere.
+// Dosage: stronger penalty when A2 or B2 are homozygous.
+//
+// nA = number of A2 alleles (0,1,2)
+// nB = number of B2 alleles (0,1,2)
+//
+// Fitness mapping:
+// if nA==0 or nB==0: w = 1
+// if nA==1 and nB==1: w = (1 - hb*sb)
+// if (nA==2 and nB==1) or (nA==1 and nB==2): w = (1 - sb)*(1 - hb*sb)
+// if nA==2 and nB==2: w = (1 - sb)^2
 function (numeric) bdmiMultiplier(object<Individual> ind)
 {
-	i = hapIndex(ind.haploidGenome1);
-	j = hapIndex(ind.haploidGenome2);
-
-	if (i > j) { tmp = i; i = j; j = tmp; }
-
-	one_hs = 1.0 + h*s;
-	one_s  = 1.0 + s;
-
-	e_single = (1.0 - hb*sb);
-	e_double = (1.0 - hb*kb*sb);
-	e_full   = (1.0 - sb);
-
-	w = 1.0;
-
-	if (i == 1) {
-		if (j == 1) w = 1.0;
-		else if (j == 2) w = 1.0;
-		else if (j == 3) w = one_hs;
-		else if (j == 4) w = one_hs * e_double;
+	nA = 0;
+	nB = 0;
+	
+	// Count A2 (m1 at posA) on haploidGenome1
+	a = ind.haploidGenome1.mutationsOfType(m1);
+	if (size(a) > 0)
+		if (sum(a.position == posA) > 0)
+			nA = nA + 1;
+	
+	// Count A2 on haploidGenome2
+	a = ind.haploidGenome2.mutationsOfType(m1);
+	if (size(a) > 0)
+		if (sum(a.position == posA) > 0)
+			nA = nA + 1;
+	
+	// Count B2 (m2 at posB) on haploidGenome1
+	b = ind.haploidGenome1.mutationsOfType(m2);
+	if (size(b) > 0)
+		if (sum(b.position == posB) > 0)
+			nB = nB + 1;
+	
+	// Count B2 on haploidGenome2
+	b = ind.haploidGenome2.mutationsOfType(m2);
+	if (size(b) > 0)
+		if (sum(b.position == posB) > 0)
+			nB = nB + 1;
+	
+	// If either derived allele is absent, no incompatibility
+	if (nA == 0)
+		return 1.0;
+	if (nB == 0)
+		return 1.0;
+	
+	// Precompute factors
+	w_het = 1.0 - hb * sb;  // (1,1)
+	w_hom = 1.0 - sb;       // homozygous at one locus
+	
+	// Dosage cases
+	if (nA == 2) {
+		if (nB == 2)
+			return w_hom * w_hom;      // (2,2)
+		return w_hom * w_het;          // (2,1)
 	}
-	else if (i == 2) {
-		if (j == 2) w = 1.0;
-		else if (j == 3) w = one_hs * e_double;
-		else if (j == 4) w = one_hs * e_single;
-	}
-	else if (i == 3) {
-		if (j == 3) w = one_s;
-		else if (j == 4) w = one_s * e_single;
-	}
-	else { // i == 4
-		if (j == 4) w = one_s * e_full;
-	}
-
-	return w;
+	
+	// nA == 1
+	if (nB == 2)
+		return w_hom * w_het;          // (1,2)
+	
+	// nB == 1
+	return w_het;                      // (1,1)
 }
+
 
 // Move hybrid-flagged offspring from p1/p2 into p3
 function (void) migrateFlaggedHybrids(void)
 {
 	migrants = c();
-
+	
 	for (ind in c(p1.individuals, p2.individuals)) {
 		flag = ind.getValue("migrateToP3");
 		if (!isNULL(flag))
 			if (flag) migrants = c(migrants, ind);
 	}
-
+	
 	if (size(migrants) > 0) {
 		p3.takeMigrants(migrants);
 		for (ind in migrants)
@@ -164,28 +207,28 @@ function (void) migrateFlaggedHybrids(void)
 
 function (void) applyMacArthurCompetition(void)
 {
-    // SAFETY: ensure everyone has a spatial position (prevents evaluate() crashes)
-    for (pop in sim.subpopulations) {
-        for (ind in pop.individuals) {
-            // if z is missing, define it
-            z = ind.getValue("z");
-            if (isNULL(z)) { z = 0.0; ind.setValue("z", z); }
-
-            // always ensure position matches z
-            ind.setSpatialPosition(c(z, 0.0));
-        }
-    }
-
-    i1.evaluate(sim.subpopulations);
-
-    for (pop in sim.subpopulations) {
-        for (ind in pop.individuals) {
-            Di = i1.totalOfNeighborStrengths(ind);
-            w_comp = exp(-gamma_comp * Di);
-            if (w_comp < 0.01) w_comp = 0.01;
-            ind.fitnessScaling = w_comp;
-        }
-    }
+	// SAFETY: ensure everyone has a spatial position (prevents evaluate() crashes)
+	for (pop in sim.subpopulations) {
+		for (ind in pop.individuals) {
+			// if z is missing, define it
+			z = ind.getValue("z");
+			if (isNULL(z)) { z = 0.0; ind.setValue("z", z); }
+			
+			// always ensure position matches z
+			ind.setSpatialPosition(c(z, 0.0));
+		}
+	}
+	
+	i1.evaluate(sim.subpopulations);
+	
+	for (pop in sim.subpopulations) {
+		for (ind in pop.individuals) {
+			Di = i1.totalOfNeighborStrengths(ind);
+			w_comp = exp(-gamma_comp * Di);
+			ind.fitnessScaling = w_comp;
+		
+		}
+	}
 }
 
 
@@ -195,9 +238,9 @@ function (void) applyBDMI(void)
 	for (pop in sim.subpopulations) {
 		for (ind in pop.individuals) {
 			w_bdmi = bdmiMultiplier(ind);
-
+			
 			ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
-			if (ind.fitnessScaling < 0.01) ind.fitnessScaling = 0.01;
+		
 		}
 	}
 }
@@ -211,7 +254,7 @@ survival()
 	// annual: all older individuals die
 	if (individual.age > 0)
 		return F;
-
+	
 	// viability selection on age-0 cohort
 	p = individual.fitnessScaling;
 	if (p < 0.01) p = 0.01;
@@ -227,56 +270,56 @@ initialize()
 {
 	initializeSLiMModelType("nonWF");
 	initializeSLiMOptions(keepPedigrees=F, dimensionality="xy");
-
+	
 	// genome / BDMI loci
 	defineConstant("L", 100000);
 	defineConstant("posA", 20000);
 	defineConstant("posB", 70000);
-
+	
 	initializeMutationType("m1", 0.5, "f", 0.0);  // A2
 	initializeMutationType("m2", 0.5, "f", 0.0);  // B2
 	m1.convertToSubstitution = F;
 	m2.convertToSubstitution = F;
-
+	
 	initializeGenomicElementType("g1", c(m1, m2), c(0.5, 0.5));
 	initializeGenomicElement(g1, 0, L-1);
-
+	
 	defineConstant("MU", 0.0);
 	initializeMutationRate(MU);
 	initializeRecombinationRate(1e-3);
-
+	
 	// fecundity parameters
-	defineConstant("maxOvules_p1p2", 12);
-	defineConstant("maxOvules_p3",   7);
-	defineConstant("dd_rate0", 0.75);           // constant fertilization rate
-
+	defineConstant("maxOvules_p1p2", 3);
+	defineConstant("maxOvules_p3",   3);
+	defineConstant("dd_rate0", 0.4);           // constant fertilization rate
+	
 	// hybridization attempts
-	defineConstant("hybridizationRate", 0.01);
-
+	defineConstant("hybridizationRate", 0.003);
+	
 	// ---- MacArthur competition parameters (trait overlap kernel)
 	defineConstant("sigma_c",    0.20);  // niche width in trait space
 	defineConstant("maxDist_c", 0.60);  // 3 * 0.20
 	defineConstant("gamma_comp", 0.02);  // strength: crowding -> viability
-
+	
 	// trait inheritance noise
 	defineConstant("sigma_z", 0.05);
-
+	
 	// ---- ASSORTATIVE mate choice parameters
 	defineConstant("sigma_m",    0.15);  // smaller = stronger assortative
 	defineConstant("epsilon_w",  1e-6);
 	defineConstant("excludeSelf", T);
-
+	
 	// Gaussian kernel competition in "xy" space (we'll place individuals at (z,0))
 	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=maxDist_c);
 	i1.setInteractionFunction("n", 1.0, sigma_c);  // neighbor strength = exp(-d^2/(2*sigma_c^2))
-
+	
 	// BDMI parameters
 	defineConstant("s",  0.10);
 	defineConstant("h",  0.50);
 	defineConstant("sb", 0.30);
 	defineConstant("hb", 0.50);
 	defineConstant("kb", 1.00);
-
+	
 	defineConstant("T_max", 2000);
 	defineConstant("OUTFILE", "output_base_annual_macarthur.txt");
 }
@@ -287,33 +330,37 @@ initialize()
 
 1 first()
 {
-    // create founding populations
-    sim.addSubpop("p1", 100);
-    sim.addSubpop("p2", 150);
-    sim.addSubpop("p3", 0);
-
-    // fix parental genotypes
-    for (ind in p1.individuals) {
-        addAllele(ind.haploidGenome1, m1, posA);
-        addAllele(ind.haploidGenome2, m1, posA);
-    }
-    for (ind in p2.individuals) {
-        addAllele(ind.haploidGenome1, m2, posB);
-        addAllele(ind.haploidGenome2, m2, posB);
-    }
-
-    // assign initial trait values
-    for (ind in p1.individuals) ind.setValue("z", -0.5);
-    for (ind in p2.individuals) ind.setValue("z",  0.5);
-
-    // ensure spatial position matches z immediately (needed for InteractionType evaluation)
-    for (ind in p1.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
-    for (ind in p2.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
-
+	// create founding populations
+	sim.addSubpop("p1", 50);
+	sim.addSubpop("p2", 70);
+	sim.addSubpop("p3", 0);
+	
+	for (ind in p1.individuals) ind.age = 1;
+	for (ind in p2.individuals) ind.age = 1;
+	
+	
+	// fix parental genotypes
+	for (ind in p1.individuals) {
+		addAllele(ind.haploidGenome1, m1, posA);
+		addAllele(ind.haploidGenome2, m1, posA);
+	}
+	for (ind in p2.individuals) {
+		addAllele(ind.haploidGenome1, m2, posB);
+		addAllele(ind.haploidGenome2, m2, posB);
+	}
+	
+	// assign initial trait values
+	for (ind in p1.individuals) ind.setValue("z", -0.5);
+	for (ind in p2.individuals) ind.setValue("z",  0.5);
+	
+	// ensure spatial position matches z immediately (needed for InteractionType evaluation)
+	for (ind in p1.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
+	for (ind in p2.individuals) ind.setSpatialPosition(c(ind.getValue("z"), 0.0));
+	
 	writeFile(OUTFILE,
-    "gen\tN1\tN2\tN3\t" +
-    "pA2_p1\tpB2_p1\tpA2_p2\tpB2_p2\tpA2_p3\tpB2_p3\n",
-    append=F);
+		"gen\tN1\tN2\tN3\t" +
+		"pA2_p1\tpB2_p1\tpA2_p2\tpB2_p2\tpA2_p3\tpB2_p3\n",
+		append=F);
 
 }
 
@@ -322,20 +369,24 @@ initialize()
 
 reproduction()
 {
+	// Only adults reproduce (age 1+). Newborns (age 0) never reproduce.
+	if (individual.age == 0)
+		return;
+	
 	// Constant fertilization rate (no density dependence)
 	fertilizationRate = dd_rate0;
-
+	
 	// p1: within p1 normally; hybridize with p2 or p3 at hybridizationRate -> offspring migrates to p3
 	if (subpop == p1) {
-		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10));
+		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 5));
 		for (i in seqLen(n)) {
 			doHybrid = (runif(1) < hybridizationRate);
-
+			
 			if (doHybrid) {
 				candidates = c();
 				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
 				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
-
+				
 				if (size(candidates) > 0) {
 					mate = chooseMateAssort(individual, candidates);
 					kid  = subpop.addCrossed(individual, mate);
@@ -354,18 +405,18 @@ reproduction()
 		}
 		return;
 	}
-
+	
 	// p2: within p2 normally; hybridize with p1 or p3 at hybridizationRate -> offspring migrates to p3
 	if (subpop == p2) {
-		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 10));
+		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 5));
 		for (i in seqLen(n)) {
 			doHybrid = (runif(1) < hybridizationRate);
-
+			
 			if (doHybrid) {
 				candidates = c();
 				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
 				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
-
+				
 				if (size(candidates) > 0) {
 					mate = chooseMateAssort(individual, candidates);
 					kid  = subpop.addCrossed(individual, mate);
@@ -384,18 +435,18 @@ reproduction()
 		}
 		return;
 	}
-
+	
 	// p3: sexual; mate within p3 normally; backcross to p1/p2 at hybridizationRate; offspring stays in p3
 	if (subpop == p3) {
-		n = asInteger(min(rbinom(1, maxOvules_p3, fertilizationRate), 10));
+		n = asInteger(min(rbinom(1, maxOvules_p3, fertilizationRate), 5));
 		for (i in seqLen(n)) {
 			doBackcross = (runif(1) < hybridizationRate);
-
+			
 			if (doBackcross) {
 				candidates = c();
 				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
 				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
-
+				
 				if (size(candidates) > 0)
 					mate = chooseMateAssort(individual, candidates);
 				else
@@ -403,7 +454,7 @@ reproduction()
 			} else {
 				mate = chooseMateAssort(individual, p3.individuals);
 			}
-
+			
 			kid = subpop.addCrossed(individual, mate);
 			setOffspringTrait(kid, individual, mate);
 		}
@@ -415,52 +466,61 @@ reproduction()
 //////////////////////////////
 //  FITNESS ASSEMBLY (EACH GEN: MIGRATE -> RESET -> MACARTHUR COMP -> BDMI)
 
-early()
-{
-	// 1) move hybrid offspring into p3 (must happen before fitness assembly)
-	migrateFlaggedHybrids();
-
-	// 2) reset fitnessScaling so it doesn't accumulate
-	for (pop in sim.subpopulations)
-		for (ind in pop.individuals)
-			ind.fitnessScaling = 1.0;
-
-	// 3) assemble multiplicative fitnessScaling = w_comp(trait overlap) * w_bdmi
-	applyMacArthurCompetition();
-	applyBDMI();
-}
 
 
 late()
 {
-    // default values (so empty pops don't crash anything)
-    pA2_p1 = 0.0;  pB2_p1 = 0.0;
-    pA2_p2 = 0.0;  pB2_p2 = 0.0;
-    pA2_p3 = 0.0;  pB2_p3 = 0.0;
-
-    if (p1.individualCount > 0) {
-        pA2_p1 = freqAtPos(p1, m1, posA);
-        pB2_p1 = freqAtPos(p1, m2, posB);
-    }
-    if (p2.individualCount > 0) {
-        pA2_p2 = freqAtPos(p2, m1, posA);
-        pB2_p2 = freqAtPos(p2, m2, posB);
-    }
-    if (p3.individualCount > 0) {
-        pA2_p3 = freqAtPos(p3, m1, posA);
-        pB2_p3 = freqAtPos(p3, m2, posB);
-    }
-
-    writeFile(OUTFILE,
-        sim.cycle + "\t" +
-        p1.individualCount + "\t" + p2.individualCount + "\t" + p3.individualCount + "\t" +
-        pA2_p1 + "\t" + pB2_p1 + "\t" +
-        pA2_p2 + "\t" + pB2_p2 + "\t" +
-        pA2_p3 + "\t" + pB2_p3 + "\n",
-        append=T);
+	// ------------------------------------------------------------
+	// FITNESS ASSEMBLY MUST HAPPEN AFTER reproduction()
+	// so newborns (age 0) get viability before survival().
+	// ------------------------------------------------------------
+	
+	// 1) Move hybrid offspring into p3 (flags set during reproduction())
+	migrateFlaggedHybrids();
+	
+	// 2) Reset fitnessScaling (avoid accumulation across cycles)
+	for (pop in sim.subpopulations)
+		for (ind in pop.individuals)
+			ind.fitnessScaling = 1.0;
+	
+	// 3) Apply MacArthur competition (trait overlap crowding)
+	applyMacArthurCompetition();
+	
+	// 4) Apply BDMI multiplicatively
+	applyBDMI();
+	
+	// ------------------------------------------------------------
+	// LOGGING (your existing code, unchanged)
+	// ------------------------------------------------------------
+	
+	pA2_p1 = 0.0;  pB2_p1 = 0.0;
+	pA2_p2 = 0.0;  pB2_p2 = 0.0;
+	pA2_p3 = 0.0;  pB2_p3 = 0.0;
+	
+	if (p1.individualCount > 0) {
+		pA2_p1 = freqAtPos(p1, m1, posA);
+		pB2_p1 = freqAtPos(p1, m2, posB);
+	}
+	if (p2.individualCount > 0) {
+		pA2_p2 = freqAtPos(p2, m1, posA);
+		pB2_p2 = freqAtPos(p2, m2, posB);
+	}
+	if (p3.individualCount > 0) {
+		pA2_p3 = freqAtPos(p3, m1, posA);
+		pB2_p3 = freqAtPos(p3, m2, posB);
+	}
+	
+	writeFile(OUTFILE,
+		sim.cycle + "\t" +
+		p1.individualCount + "\t" + p2.individualCount + "\t" + p3.individualCount + "\t" +
+		pA2_p1 + "\t" + pB2_p1 + "\t" +
+		pA2_p2 + "\t" + pB2_p2 + "\t" +
+		pA2_p3 + "\t" + pB2_p3 + "\n",
+		append=T);
 }
+
 
 2000 late()
 {
-    sim.simulationFinished();
+	sim.simulationFinished();
 }
