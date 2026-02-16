@@ -70,7 +70,7 @@ function (object<Individual>) chooseMateAssort(object<Individual> focal, object<
 }
 
 
-// Seed "private" standing DMI variation in founders.
+// Seed 
 function (void) seedPrivateDMIs(object<Subpopulation> pop, object<MutationType> mt, integer nSeed)
 {
 	usedPos = integer(0);
@@ -103,7 +103,7 @@ function (void) seedPrivateDMIs(object<Subpopulation> pop, object<MutationType> 
 }
 
 
-// number of copies (0/1/2) of a specific mutation in an individual
+
 function (integer) copiesOfMutation(object<Individual> ind, object<Mutation> mu)
 {
 	c1 = ind.genome1.containsMutations(mu);
@@ -112,10 +112,10 @@ function (integer) copiesOfMutation(object<Individual> ind, object<Mutation> mu)
 }
 
 
-// Orleach-style multi-locus BDMI multiplier (all-by-all m1×m2 pairs, multiplicative)
+
 function (numeric) bdmiMultiplierOrleach(object<Individual> ind)
 {
-	// 4.3: use genomes, not haplosomes
+	
 	M1 = unique(ind.genomes.mutationsOfType(m1));
 	M2 = unique(ind.genomes.mutationsOfType(m2));
 
@@ -147,7 +147,7 @@ function (numeric) bdmiMultiplierOrleach(object<Individual> ind)
 }
 
 
-// Move hybrid-flagged offspring from p1/p2 into p3
+
 function (void) migrateFlaggedHybrids(void)
 {
 	migrants = c();
@@ -168,7 +168,7 @@ function (void) migrateFlaggedHybrids(void)
 
 function (void) applyMacArthurCompetitionInterPop(void)
 {
-	// Ensure spatial positions exist (prevents evaluate() crashes)
+	
 	for (pop in sim.subpopulations) {
 		for (ind in pop.individuals) {
 			z = ind.getValue("z");
@@ -177,15 +177,15 @@ function (void) applyMacArthurCompetitionInterPop(void)
 		}
 	}
 
-	// Evaluate "all" interaction across all subpops
+	
 	i1.evaluate(sim.subpopulations);
 
-	// Evaluate within-pop interactions separately
+	
 	i2.evaluate(p1);
 	i3.evaluate(p2);
 	i4.evaluate(p3);
 
-	// For each individual: D_inter = D_all - D_intra(pop)
+	
 	for (ind in p1.individuals) {
 		Dall = i1.totalOfNeighborStrengths(ind);
 		Din  = i2.totalOfNeighborStrengths(ind);
@@ -221,7 +221,7 @@ function (void) applyMacArthurCompetitionInterPop(void)
 }
 
 
-// Apply BDMI multiplicatively to existing fitnessScaling
+
 function (void) applyBDMI(void)
 {
 	for (pop in sim.subpopulations) {
@@ -235,7 +235,7 @@ function (void) applyBDMI(void)
 
 
 //////////////////////////////
-//  SURVIVAL (ANNUAL: all adults die; juveniles survive with viability * per-pop K)
+//  SURVIVAL
 
 survival()
 {
@@ -272,10 +272,10 @@ initialize()
 	initializeSLiMModelType("nonWF");
 	initializeSLiMOptions(keepPedigrees=F, dimensionality="xy");
 
-	// genome (DMIs arise by mutation across region)
+	
 	defineConstant("L", 100000);
 
-	// mutation rates per bp per gen
+	
 	defineConstant("mu_m1", 1e-10);
 	defineConstant("mu_m2", 1e-10);
 
@@ -290,28 +290,28 @@ initialize()
 	initializeMutationRate(mu_m1 + mu_m2);
 	initializeRecombinationRate(1e-8);
 
-	// fecundity parameters
+	
 	defineConstant("maxOvules_p1p2", 3);
 	defineConstant("maxOvules_p3",   3);
 	defineConstant("dd_rate0", 0.4);
 
-	// hybridization attempts
+	
 	defineConstant("hybridizationRate", 0.0001);
 
-	// ---- MacArthur competition parameters (trait overlap kernel)
+	
 	defineConstant("sigma_c",    0.20);
 	defineConstant("maxDist_c",  0.60);
 	defineConstant("gamma_comp", 0.02);
 
-	// trait inheritance noise
+	
 	defineConstant("sigma_z", 0.05);
 
-	// ---- ASSORTATIVE mate choice parameters
+	
 	defineConstant("sigma_m",    0.15);
 	defineConstant("epsilon_w",  1e-6);
 	defineConstant("excludeSelf", T);
 
-	// Interactions for competition decomposition
+	
 	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=maxDist_c);  // iAll
 	i1.setInteractionFunction("n", 1.0, sigma_c);
 
@@ -324,15 +324,15 @@ initialize()
 	initializeInteractionType(4, "xy", reciprocal=T, maxDistance=maxDist_c);  // iP3
 	i4.setInteractionFunction("n", 1.0, sigma_c);
 
-	// BDMI parameters
+	
 	defineConstant("sb", 0.30);
 	defineConstant("hb", 0.50);
 
-	// seed standing private DMI alleles
+	
 	defineConstant("nSeed_m1", 5);
 	defineConstant("nSeed_m2", 5);
 
-	// ---- Per-pop soft carrying capacities
+	
 	defineConstant("K_p1", 1000);
 	defineConstant("K_p2", 1000);
 	defineConstant("K_p3", 1000);
@@ -343,7 +343,7 @@ initialize()
 
 
 //////////////////////////////
-//  SETUP — FIRST()
+//  FIRST()
 
 1 first()
 {
@@ -351,15 +351,15 @@ initialize()
 	sim.addSubpop("p2", 150);
 	sim.addSubpop("p3", 0);
 
-	// make them adults so reproduction() runs
+	
 	for (ind in p1.individuals) ind.age = 1;
 	for (ind in p2.individuals) ind.age = 1;
 
-	// seed private standing DMI variation
+	
 	seedPrivateDMIs(p1, m1, nSeed_m1);
 	seedPrivateDMIs(p2, m2, nSeed_m2);
 
-	// starting trait means
+	
 	for (ind in p1.individuals) ind.setValue("z", -0.5);
 	for (ind in p2.individuals) ind.setValue("z",  0.5);
 
@@ -466,23 +466,22 @@ reproduction()
 }
 
 
-//////////////////////////////
-//  FITNESS ASSEMBLY (EACH GEN)
+
 
 late()
 {
-	// 1) Move hybrid offspring into p3
+	
 	migrateFlaggedHybrids();
 
-	// 2) Reset fitnessScaling
+	
 	for (pop in sim.subpopulations)
 		for (ind in pop.individuals)
 			ind.fitnessScaling = 1.0;
 
-	// 3) Inter-pop MacArthur competition ONLY
+	
 	applyMacArthurCompetitionInterPop();
 
-	// 4) Orleach-style multi-locus BDMI
+	
 	applyBDMI();
 
 	writeFile(OUTFILE,
