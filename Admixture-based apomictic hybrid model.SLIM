@@ -1,0 +1,382 @@
+// ============================================================
+//  BASE + Selfing Hybrids (No Backcrossing)
+// ============================================================
+
+//////////////////////////////
+//  UTILITY FUNCTIONS
+
+function (void) addAllele(object<Genome> g, object<MutationType> mt, integer pos)
+{
+	muts = g.mutationsOfType(mt);
+	if (size(muts) > 0) {
+		if (sum(muts.position == pos) > 0) return;
+	}
+	g.addNewDrawnMutation(mt, pos);
+}
+
+function (integer) countAnc1InGenome(object<Genome> g)
+{
+	muts = g.mutationsOfType(m3);
+	if (size(muts) == 0)
+		return 0;
+	pos = muts.position;
+	cnt = 0;
+	for (p in markerPos)
+		if (sum(pos == p) > 0)
+			cnt = cnt + 1;
+	return cnt;
+}
+
+function (numeric) computeHI(object<Individual> ind)
+{
+	c1 = countAnc1InGenome(ind.genome1);
+	c2 = countAnc1InGenome(ind.genome2);
+	return (c1 + c2) / (2.0 * nMarkers);
+}
+
+function (object<Individual>) chooseMateAssort(object<Individual> focal, object<Individual> candidates)
+{
+	if (size(candidates) == 0)
+		return NULL;
+	HIf = focal.getValue("HI");
+	if (isNULL(HIf)) HIf = computeHI(focal);
+	cands = c();
+	weights = c();
+	for (m in candidates)
+	{
+		if (excludeSelf)
+		{
+			if (m != focal)
+			{
+				HIm = m.getValue("HI");
+				if (isNULL(HIm)) HIm = computeHI(m);
+				d = HIf - HIm;
+				w = exp(-(d*d) / (2.0*sigma_m*sigma_m));
+				if (w < epsilon_w) w = epsilon_w;
+				cands = c(cands, m);
+				weights = c(weights, w);
+			}
+		}
+		else
+		{
+			HIm = m.getValue("HI");
+			if (isNULL(HIm)) HIm = computeHI(m);
+			d = HIf - HIm;
+			w = exp(-(d*d) / (2.0*sigma_m*sigma_m));
+			if (w < epsilon_w) w = epsilon_w;
+			cands = c(cands, m);
+			weights = c(weights, w);
+		}
+	}
+	if (size(cands) == 0)
+		return sample(candidates, 1);
+	if (sum(weights) <= 0.0)
+		return sample(cands, 1);
+	return sample(cands, 1, weights=weights);
+}
+
+function (void) seedPrivateDMIs(object<Subpopulation> pop, object<MutationType> mt, integer nSeed)
+{
+	usedPos = integer(0);
+	for (i in 1:nSeed)
+	{
+		ind = sample(pop.individuals, 1);
+		pos = rdunif(1, 0, L-1);
+		while (T)
+		{
+			ok = T;
+			if (size(usedPos) > 0)
+				if (sum(usedPos == pos) > 0)
+					ok = F;
+			if (ok) break;
+			pos = rdunif(1, 0, L-1);
+		}
+		usedPos = c(usedPos, pos);
+		if (runif(1) < 0.5)
+			addAllele(ind.genome1, mt, pos);
+		else
+			addAllele(ind.genome2, mt, pos);
+	}
+}
+
+function (integer) copiesOfMutation(object<Individual> ind, object<Mutation> mu)
+{
+	c1 = ind.genome1.containsMutations(mu);
+	c2 = ind.genome2.containsMutations(mu);
+	return asInteger(c1) + asInteger(c2);
+}
+
+function (numeric) bdmiMultiplierOrleach(object<Individual> ind)
+{
+	M1 = unique(ind.genomes.mutationsOfType(m1));
+	M2 = unique(ind.genomes.mutationsOfType(m2));
+	if (size(M1) == 0) return 1.0;
+	if (size(M2) == 0) return 1.0;
+	w_total = 1.0;
+	for (mu1 in M1)
+	{
+		n1 = copiesOfMutation(ind, mu1);
+		for (mu2 in M2)
+		{
+			n2 = copiesOfMutation(ind, mu2);
+			if (n1 == 2)
+			{
+				if (n2 == 2)
+					w_pair = 1.0 - sb;
+				else
+					w_pair = 1.0 - hb * sb;
+			}
+			else
+				w_pair = 1.0 - hb * sb;
+			if (w_pair < 0.01) w_pair = 0.01;
+			w_total = w_total * w_pair;
+		}
+	}
+	return w_total;
+}
+
+function (void) migrateFlaggedHybrids(void)
+{
+	migrants = c();
+	for (ind in c(p1.individuals, p2.individuals))
+	{
+		flag = ind.getValue("migrateToP3");
+		if (!isNULL(flag))
+			if (flag)
+				migrants = c(migrants, ind);
+	}
+	if (size(migrants) > 0)
+	{
+		p3.takeMigrants(migrants);
+		for (ind in migrants)
+			ind.setValue("migrateToP3", F);
+	}
+}
+
+function (void) applyContinuousHICompetition(void)
+{
+	inds = sim.subpopulations.individuals;
+	N = size(inds);
+	if (N <= 1) return;
+	for (ind in inds)
+	{
+		HI = computeHI(ind);
+		ind.setValue("HI", HI);
+		ind.setSpatialPosition(c(HI, 0.0));
+	}
+	i1.evaluate(sim.subpopulations);
+	for (ind in inds)
+	{
+		Dsim = i1.totalOfNeighborStrengths(ind);
+		Di = B * (N - 1) + alpha_sim * Dsim;
+		w = exp(-gamma_comp * Di);
+		if (w < 0.01) w = 0.01;
+		ind.fitnessScaling = w;
+	}
+}
+
+function (void) applyBDMI(void)
+{
+	for (pop in sim.subpopulations)
+		for (ind in pop.individuals)
+		{
+			w_bdmi = bdmiMultiplierOrleach(ind);
+			ind.fitnessScaling = ind.fitnessScaling * w_bdmi;
+			if (ind.fitnessScaling < 0.01) ind.fitnessScaling = 0.01;
+		}
+}
+
+survival()
+{
+	if (individual.age > 0)
+		return F;
+	p = individual.fitnessScaling;
+	if (p < 0.01) p = 0.01;
+	if (p > 0.99) p = 0.99;
+	return (runif(1) < p);
+}
+
+initialize()
+{
+	initializeSLiMModelType("nonWF");
+	initializeSLiMOptions(keepPedigrees=F, dimensionality="xy");
+	defineConstant("L", 100000);
+	defineConstant("mu_m1", 1e-10);
+	defineConstant("mu_m2", 1e-10);
+	initializeMutationType("m1", 0.5, "f", 0.0);
+	initializeMutationType("m2", 0.5, "f", 0.0);
+	m1.convertToSubstitution = F;
+	m2.convertToSubstitution = F;
+	initializeGenomicElementType("g1", c(m1, m2), c(mu_m1, mu_m2));
+	initializeGenomicElement(g1, 0, L-1);
+	initializeMutationRate(mu_m1 + mu_m2);
+	initializeRecombinationRate(1e-8);
+	initializeMutationType("m3", 0.5, "f", 0.0);
+	initializeMutationType("m4", 0.5, "f", 0.0);
+	m3.convertToSubstitution = F;
+	m4.convertToSubstitution = F;
+	defineConstant("nMarkers", 20);
+	defineConstant("markerStart", 1000);
+	defineConstant("markerEnd",   L - 1000);
+	defineConstant("markerStep", asInteger((markerEnd - markerStart) / (nMarkers - 1)));
+	defineConstant("markerPos", asInteger(seq(from=markerStart, to=markerEnd, by=markerStep)));
+	defineConstant("maxOvules_p1p2", 3);
+	defineConstant("maxOvules_p3",   3);
+	defineConstant("dd_rate0", 0.33);
+	defineConstant("hybridizationRate", 0.0001);
+	defineConstant("sigma_m", 0.15);
+	defineConstant("epsilon_w", 1e-6);
+	defineConstant("excludeSelf", T);
+	defineConstant("sigma_HI", 0.20);
+	defineConstant("alpha_sim", 2.00);
+	defineConstant("B", 0.50);
+	defineConstant("gamma_comp", 0.005);
+	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=1.0);
+	i1.setInteractionFunction("n", 1.0, sigma_HI);
+	defineConstant("sb", 0.30);
+	defineConstant("hb", 0.50);
+	defineConstant("nSeed_m1", 5);
+	defineConstant("nSeed_m2", 5);
+	defineConstant("OUTFILE", "output_selfingHybrids.txt");
+}
+
+1 first()
+{
+	sim.addSubpop("p1", 150);
+	sim.addSubpop("p2", 150);
+	sim.addSubpop("p3", 0);
+	for (ind in p1.individuals) ind.age = 1;
+	for (ind in p2.individuals) ind.age = 1;
+	seedPrivateDMIs(p1, m1, nSeed_m1);
+	seedPrivateDMIs(p2, m2, nSeed_m2);
+	for (ind in p1.individuals)
+		for (p in markerPos)
+		{
+			addAllele(ind.genome1, m3, p);
+			addAllele(ind.genome2, m3, p);
+		}
+	for (ind in p2.individuals)
+		for (p in markerPos)
+		{
+			addAllele(ind.genome1, m4, p);
+			addAllele(ind.genome2, m4, p);
+		}
+	for (pop in sim.subpopulations)
+		for (ind in pop.individuals)
+		{
+			HI = computeHI(ind);
+			ind.setValue("HI", HI);
+			ind.setSpatialPosition(c(HI, 0.0));
+		}
+	writeFile(OUTFILE,
+		"gen\tN1\tN2\tN3\tmeanHI_p1\tmeanHI_p2\tmeanHI_p3\n",
+		append=F);
+}
+
+reproduction()
+{
+	if (individual.age == 0) return;
+	fertilizationRate = dd_rate0;
+	
+	if (subpop == p1)
+	{
+		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 3));
+		for (i in seqLen(n))
+		{
+			doHybrid = (runif(1) < hybridizationRate);
+			if (doHybrid)
+			{
+				candidates = c();
+				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
+				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				if (size(candidates) > 0)
+				{
+					mate = chooseMateAssort(individual, candidates);
+					kid  = subpop.addCrossed(individual, mate);
+					kid.setValue("migrateToP3", T);
+				}
+				else
+				{
+					mate = chooseMateAssort(individual, p1.individuals);
+					kid  = subpop.addCrossed(individual, mate);
+				}
+			}
+			else
+			{
+				mate = chooseMateAssort(individual, p1.individuals);
+				kid  = subpop.addCrossed(individual, mate);
+			}
+		}
+		return;
+	}
+	
+	if (subpop == p2)
+	{
+		n = asInteger(min(rbinom(1, maxOvules_p1p2, fertilizationRate), 5));
+		for (i in seqLen(n))
+		{
+			doHybrid = (runif(1) < hybridizationRate);
+			if (doHybrid)
+			{
+				candidates = c();
+				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
+				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				if (size(candidates) > 0)
+				{
+					mate = chooseMateAssort(individual, candidates);
+					kid  = subpop.addCrossed(individual, mate);
+					kid.setValue("migrateToP3", T);
+				}
+				else
+				{
+					mate = chooseMateAssort(individual, p2.individuals);
+					kid  = subpop.addCrossed(individual, mate);
+				}
+			}
+			else
+			{
+				mate = chooseMateAssort(individual, p2.individuals);
+				kid  = subpop.addCrossed(individual, mate);
+			}
+		}
+		return;
+	}
+	
+	if (subpop == p3)
+	{
+		n = asInteger(min(rbinom(1, maxOvules_p3, fertilizationRate), 5));
+		for (i in seqLen(n))
+		{
+			kid = subpop.addCloned(individual);
+		}
+		return;
+	}
+
+}
+
+late()
+{
+	migrateFlaggedHybrids();
+	for (pop in sim.subpopulations)
+		for (ind in pop.individuals)
+			ind.fitnessScaling = 1.0;
+	applyContinuousHICompetition();
+	applyBDMI();
+	
+	m1HI = (p1.individualCount > 0) ? mean(p1.individuals.getValue("HI")) else NAN;
+	m2HI = (p2.individualCount > 0) ? mean(p2.individuals.getValue("HI")) else NAN;
+	m3HI = (p3.individualCount > 0) ? mean(p3.individuals.getValue("HI")) else NAN;
+	
+	writeFile(OUTFILE,
+		sim.cycle + "\t" +
+		p1.individualCount + "\t" +
+		p2.individualCount + "\t" +
+		p3.individualCount + "\t" +
+		m1HI + "\t" + m2HI + "\t" + m3HI + "\n",
+		append=T);
+}
+
+2000 late()
+{
+	sim.simulationFinished();
+}
