@@ -347,7 +347,7 @@ reproduction()
 		n = asInteger(min(rbinom(1, maxOvules_p3, fertilizationRate), 5));
 		for (i in seqLen(n))
 		{
-			kid = subpop.addCrossed(individual, individual);
+			kid = subpop.addSelfed(individual);
 		}
 		return;
 	}
@@ -355,17 +355,49 @@ reproduction()
 
 late()
 {
+	// 1) Move flagged hybrids into p3
 	migrateFlaggedHybrids();
+
+	// 2) Reset fitnessScaling so we can apply comp + BDMI cleanly each generation
 	for (pop in sim.subpopulations)
 		for (ind in pop.individuals)
 			ind.fitnessScaling = 1.0;
+
+	// 3) Apply continuous-HI competition (also updates/stores HI + spatial position)
 	applyContinuousHICompetition();
+
+	// 4) Apply multi-locus BDMI multiplier
 	applyBDMI();
 
-	m1HI = (p1.individualCount > 0) ? mean(p1.individuals.getValue("HI")) else NAN;
-	m2HI = (p2.individualCount > 0) ? mean(p2.individuals.getValue("HI")) else NAN;
-	m3HI = (p3.individualCount > 0) ? mean(p3.individuals.getValue("HI")) else NAN;
+	// 5) Compute mean HI robustly (do NOT rely on getValue("HI") which can be NULL)
+	m1HI = NAN;
+	if (p1.individualCount > 0)
+	{
+		vals = c();
+		for (ind in p1.individuals)
+			vals = c(vals, computeHI(ind));
+		m1HI = mean(vals);
+	}
 
+	m2HI = NAN;
+	if (p2.individualCount > 0)
+	{
+		vals = c();
+		for (ind in p2.individuals)
+			vals = c(vals, computeHI(ind));
+		m2HI = mean(vals);
+	}
+
+	m3HI = NAN;
+	if (p3.individualCount > 0)
+	{
+		vals = c();
+		for (ind in p3.individuals)
+			vals = c(vals, computeHI(ind));
+		m3HI = mean(vals);
+	}
+
+	// 6) Log
 	writeFile(OUTFILE,
 		sim.cycle + "\t" +
 		p1.individualCount + "\t" +
