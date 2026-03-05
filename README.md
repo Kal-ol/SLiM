@@ -1,3 +1,5 @@
+Kallol Mozumdar, Rushworth Lab, Biology Department, Utah State University (kallol.mozumdar@usu.edu)
+
 This repository contains the primary scripts for my models for my Master's Thesis Project. We used the population genetic framework SLiM to construct individual-based models of parent-hybrid coexistence across a range of gene flow and recombination rates, subject to BDMIs and intraspecific and interspecific competition. We began with a baseline model of annual organisms that experience bidirectional gene flow and subsequently undergo outcrossing. Next, inspired by the perennial wildflower Boechera, in which hybrids are asexual and result from unidirectional gene flow, we varied life history strategies (from annual to perennial), gene flow direction (from bidirectional to unidirectional), and hybrid reproductive mode (from outcrossing to self-fertilization and asexuality).
 
 Annual
