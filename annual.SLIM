@@ -246,7 +246,7 @@ function (void) applyContinuousHICompetition(void)
 	N = size(inds);
 	if (N <= 1) return;
 	
-	
+	// assign HI and place individuals in 1D ancestry space
 	for (ind in inds)
 	{
 		HI = computeHI(ind);
@@ -254,15 +254,16 @@ function (void) applyContinuousHICompetition(void)
 		ind.setSpatialPosition(c(HI, 0.0));
 	}
 	
-	
+	// evaluate Gaussian interaction strengths across all individuals
 	i1.evaluate(sim.subpopulations);
 	
+	// local density = sum of pairwise interaction strengths
 	for (ind in inds)
 	{
-		Dsim = i1.totalOfNeighborStrengths(ind);
-		Di = B * (N - 1) + alpha_sim * Dsim;
+		Nlocal = i1.totalOfNeighborStrengths(ind);
 		
-		w = exp(-gamma_comp * Di);
+		// exponential fitness decline with local density
+		w = exp(-C * Nlocal);
 		if (w < 0.01) w = 0.01;
 		
 		ind.fitnessScaling = w;
@@ -347,10 +348,10 @@ initialize()
 	// fecundity 
 	defineConstant("maxOvules_p1p2", 3);
 	defineConstant("maxOvules_p3",   3);
-	defineConstant("dd_rate0", 0.33);
+	defineConstant("dd_rate0", 0.50);
 	
 	// hybridization 
-	defineConstant("hybridizationRate", 0.0001);
+	defineConstant("hybridizationRate", 0.001);
 	
 	// mate choice 
 	defineConstant("sigma_m",    0.15);
@@ -358,10 +359,8 @@ initialize()
 	defineConstant("excludeSelf", T);
 	
 	
-	defineConstant("sigma_HI",   0.20);
-	defineConstant("alpha_sim",  2.00);
-	defineConstant("B",          0.50);
-	defineConstant("gamma_comp", 0.005);
+defineConstant("sigma_HI",   0.20);
+defineConstant("C",          0.0010);
 	
 	
 	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=1.0);
