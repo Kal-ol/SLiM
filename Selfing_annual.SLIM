@@ -317,8 +317,8 @@ initialize()
 	defineConstant("nHIBins", 10);
 	
 	// switch life history here
-	defineConstant("annualModel", T);     
-	defineConstant("adultSurvival", 0.70); 
+	defineConstant("annualModel", T);
+	defineConstant("adultSurvival", 0.70);
 	
 	// genome
 	defineConstant("L", 100000);
@@ -339,8 +339,8 @@ initialize()
 	initializeRecombinationRate(1e-3);
 	
 	// ancestry markers
-	initializeMutationType("m3", 0.5, "f", 0.0);  
-	initializeMutationType("m4", 0.5, "f", 0.0);  
+	initializeMutationType("m3", 0.5, "f", 0.0);
+	initializeMutationType("m4", 0.5, "f", 0.0);
 	m3.convertToSubstitution = F;
 	m4.convertToSubstitution = F;
 	
@@ -353,9 +353,9 @@ initialize()
 	// fecundity
 	defineConstant("maxOvules_p1p2", 3);
 	defineConstant("maxOvules_p3",   3);
-	defineConstant("dd_rate0", 0.50);   
-	defineConstant("alpha",    0.01);  
-	defineConstant("selfingRate_p3", 1.0); 
+	defineConstant("dd_rate0", 0.50);
+	defineConstant("alpha",    0.01);
+	defineConstant("selfingRate_p3", 1.0);
 	
 	// hybridization / backcrossing probability
 	defineConstant("hybridizationRate", 0.001);
@@ -447,8 +447,10 @@ reproduction()
 	
 	// Beverton-Holt-like density dependence on fecundity
 	fertilizationRate = dd_rate0 / (1.0 + alpha * Nlocal);
-	if (fertilizationRate < 0.0) fertilizationRate = 0.0;
-	if (fertilizationRate > 1.0) fertilizationRate = 1.0;
+	if (fertilizationRate < 0.0)
+		fertilizationRate = 0.0;
+	if (fertilizationRate > 1.0)
+		fertilizationRate = 1.0;
 	
 	if (subpop == p1)
 	{
@@ -461,8 +463,10 @@ reproduction()
 			if (doHybrid)
 			{
 				candidates = c();
-				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
-				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				if (p2.individualCount > 0)
+					candidates = c(candidates, p2.individuals);
+				if (p3.individualCount > 0)
+					candidates = c(candidates, p3.individuals);
 				
 				if (size(candidates) > 0)
 					mate = chooseMateAssort(individual, candidates);
@@ -491,8 +495,10 @@ reproduction()
 			if (doHybrid)
 			{
 				candidates = c();
-				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
-				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				if (p1.individualCount > 0)
+					candidates = c(candidates, p1.individuals);
+				if (p3.individualCount > 0)
+					candidates = c(candidates, p3.individuals);
 				
 				if (size(candidates) > 0)
 					mate = chooseMateAssort(individual, candidates);
@@ -516,22 +522,21 @@ reproduction()
 		
 		for (i in seqLen(n))
 		{
-			// ---- SELFING vs OUTCROSSING ----
 			if (runif(1) < selfingRate_p3)
 			{
-				// SELFING
 				kid = subpop.addSelfed(individual);
 			}
 			else
 			{
-				// OPTIONAL BACKCROSSING
 				doBackcross = (runif(1) < hybridizationRate);
 				
 				if (doBackcross)
 				{
 					candidates = c();
-					if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
-					if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
+					if (p1.individualCount > 0)
+						candidates = c(candidates, p1.individuals);
+					if (p2.individualCount > 0)
+						candidates = c(candidates, p2.individuals);
 					
 					if (size(candidates) > 0)
 						mate = chooseMateAssort(individual, candidates);
@@ -547,10 +552,10 @@ reproduction()
 					kid = subpop.addCrossed(individual, mate);
 			}
 		}
-		
 		return;
 	}
 }
+
 
 
 
