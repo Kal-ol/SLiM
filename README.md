@@ -7,9 +7,11 @@ Annual
 - 3-pop nonWF hybrid model
 - multi-locus BDMI 
 - Ancestry markers - lineage specific fixed neutral alleles
-- Multiplicative overall fitness: w_total = w_comp * w_bdmi
-- Hybrid offspring flagged in p1/p2 and migrated to p3
 - Admixture index is measured based on distribution of ancestral markers
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
 - p3 are sexual and there is backcrossing.
 - any mating between hybrid and parents will produce more hybrids
 
@@ -19,9 +21,11 @@ Perennial
 - 3-pop nonWF hybrid model
 - multi-locus BDMI 
 - Ancestry markers - lineage specific fixed neutral alleles
-- Multiplicative overall fitness: w_total = w_comp * w_bdmi
-- Hybrid offspring flagged in p1/p2 and migrated to p3
 - Admixture index is measured based on distribution of ancestral markers
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
 - p3 are sexual and there is backcrossing.
 - any mating between hybrid and parents will produce more hybrids
 
@@ -31,10 +35,12 @@ Selfing_Annual
 - 3-pop nonWF hybrid model
 - multi-locus BDMI 
 - Ancestry markers - lineage specific fixed neutral alleles
-- Multiplicative overall fitness: w_total = w_comp * w_bdmi
-- Hybrid offspring flagged in p1/p2 and migrated to p3
 - Admixture index is measured based on distribution of ancestral markers
-- p3 are sexual and there is backcrossing.
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
+- p3 are selfing 
 - any mating between hybrid and parents will produce more hybrids
 
 Selfing_Perennial
@@ -43,10 +49,12 @@ Selfing_Perennial
 - 3-pop nonWF hybrid model
 - multi-locus BDMI 
 - Ancestry markers - lineage specific fixed neutral alleles
-- Multiplicative overall fitness: w_total = w_comp * w_bdmi
-- Hybrid offspring flagged in p1/p2 and migrated to p3
 - Admixture index is measured based on distribution of ancestral markers
-- p3 are sexual and there is backcrossing.
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
+- p3 are selfing 
 - any mating between hybrid and parents will produce more hybrids
 
 Apomixis_Annual
@@ -55,10 +63,12 @@ Apomixis_Annual
 - 3-pop nonWF hybrid model
 - multi-locus BDMI 
 - Ancestry markers - lineage specific fixed neutral alleles
-- Multiplicative overall fitness: w_total = w_comp * w_bdmi
-- Hybrid offspring flagged in p1/p2 and migrated to p3
 - Admixture index is measured based on distribution of ancestral markers
-- p3 are sexual and there is backcrossing.
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
+- p3 are asexual
 - any mating between hybrid and parents will produce more hybrids
 
 Apomixis_Perennial
@@ -67,10 +77,26 @@ Apomixis_Perennial
 - 3-pop nonWF hybrid model
 - multi-locus BDMI 
 - Ancestry markers - lineage specific fixed neutral alleles
-- Multiplicative overall fitness: w_total = w_comp * w_bdmi
-- Hybrid offspring flagged in p1/p2 and migrated to p3
 - Admixture index is measured based on distribution of ancestral markers
-- p3 are sexual and there is backcrossing.
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
+- p3 are asexual
+- any mating between hybrid and parents will produce more hybrids
+
+Selfing_Annual
+- non overlapping generations
+- 3-pop nonWF hybrid model
+- multi-locus BDMI 
+- Ancestry markers - lineage specific fixed neutral alleles
+- Admixture index is measured based on distribution of ancestral markers
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
+- p3 are sexual and there is backcrossing
+- Only P2 X P1 produces hybrids
 - any mating between hybrid and parents will produce more hybrids
 
 Boechera
@@ -80,8 +106,10 @@ Boechera
 - unidirectional gene flow
 - multi-locus BDMI 
 - Ancestry markers - lineage specific fixed neutral alleles
-- Multiplicative overall fitness: w_total = w_comp * w_bdmi
-- Hybrid offspring flagged in p1/p2 and migrated to p3
 - Admixture index is measured based on distribution of ancestral markers
-- p3 are sexual and there is backcrossing.
+- Density dependnent Offspring production
+- Assortative mating based on Admixture index
+- BDMI based survival
+- Hybrid offspring flagged in p1/p2 and migrated to p3
+- p3 are asexual
 - any mating between hybrid and parents will produce more hybrids
