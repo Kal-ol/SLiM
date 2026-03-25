@@ -511,44 +511,43 @@ reproduction()
 	}
 	
 	if (subpop == p3)
-{
-	n = asInteger(rbinom(1, maxOvules_p3, fertilizationRate));
-	
-	for (i in seqLen(n))
 	{
-		// ---- SELFING vs OUTCROSSING ----
-		if (runif(1) < selfingRate_p3)
+		n = asInteger(rbinom(1, maxOvules_p3, fertilizationRate));
+		
+		for (i in seqLen(n))
 		{
-			// SELFING
-			kid = subpop.addSelfed(individual);
-		}
-		else
-		{
-			// OPTIONAL BACKCROSSING
-			doBackcross = (runif(1) < hybridizationRate);
-			
-			if (doBackcross)
+			// ---- SELFING vs OUTCROSSING ----
+			if (runif(1) < selfingRate_p3)
 			{
-				candidates = c();
-				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
-				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
-				
-				if (size(candidates) > 0)
-					mate = chooseMateAssort(individual, candidates);
-				else
-					mate = chooseMateAssort(individual, p3.individuals);
+				// SELFING
+				kid = subpop.addSelfed(individual);
 			}
 			else
 			{
-				mate = chooseMateAssort(individual, p3.individuals);
+				// OPTIONAL BACKCROSSING
+				doBackcross = (runif(1) < hybridizationRate);
+				
+				if (doBackcross)
+				{
+					candidates = c();
+					if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
+					if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
+					
+					if (size(candidates) > 0)
+						mate = chooseMateAssort(individual, candidates);
+					else
+						mate = chooseMateAssort(individual, p3.individuals);
+				}
+				else
+				{
+					mate = chooseMateAssort(individual, p3.individuals);
+				}
+				
+				if (!isNULL(mate))
+					kid = subpop.addCrossed(individual, mate);
 			}
-			
-			if (!isNULL(mate))
-				kid = subpop.addCrossed(individual, mate);
 		}
-	}
-	return;
-}
+		
 		return;
 	}
 }
