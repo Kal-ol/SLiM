@@ -264,36 +264,6 @@ function (void) migrateFlaggedHybrids(void)
 }
 
 
-// apply BDMI viability only after burn-in, to newborns
-function (void) applyBDMItoNewborns(void)
-{
-	for (pop in sim.subpopulations)
-	{
-		for (ind in pop.individuals)
-		{
-			if (ind.age == 0)
-			{
-				if (sim.cycle > burninLength)
-				{
-					w_bdmi = bdmiMultiplierOrleach(ind);
-					if (w_bdmi < 0.01)
-						w_bdmi = 0.01;
-					ind.fitnessScaling = w_bdmi;
-				}
-				else
-				{
-					ind.fitnessScaling = 1.0;
-				}
-			}
-			else
-			{
-				ind.fitnessScaling = 1.0;
-			}
-		}
-	}
-}
-
-
 // count number of derived B marker alleles (m4)
 function (integer) countBMarkers(object<Individual> ind)
 {
@@ -374,16 +344,7 @@ function (integer) countMutTypeCopies(object<Individual> ind, object<MutationTyp
 }
 
 
-function (integer) totalMarkerCopiesInPop(object<Subpopulation> pop, object<MutationType> mt)
-{
-	total = 0;
-	for (ind in pop.individuals)
-		total = total + countMutTypeCopies(ind, mt);
-	return total;
-}
-
-
-function (integer) totalBDMICopiesInPop(object<Subpopulation> pop, object<MutationType> mt)
+function (integer) totalCopiesInPop(object<Subpopulation> pop, object<MutationType> mt)
 {
 	total = 0;
 	for (ind in pop.individuals)
@@ -399,7 +360,7 @@ function (numeric) meanHIinPop(object<Subpopulation> pop)
 
 	sumHI = 0.0;
 	for (ind in pop.individuals)
-		sumHI = sumHI + ind.getValue("HI");
+		sumHI = sumHI + computeHI(ind);
 
 	return sumHI / pop.individualCount;
 }
@@ -412,7 +373,11 @@ survival()
 	// newborn viability selection
 	if (individual.age == 0)
 	{
-		p = individual.fitnessScaling;
+		// no BDMI viability penalty during burn-in
+		if (sim.cycle <= burninLength)
+			return T;
+
+		p = bdmiMultiplierOrleach(individual);
 
 		if (p < 0.01) p = 0.01;
 		if (p > 0.99) p = 0.99;
@@ -682,8 +647,6 @@ late()
 		migrateFlaggedHybrids();
 	}
 
-	applyBDMItoNewborns();
-
 	offs1 = p1.individuals[p1.individuals.age == 0];
 	offs2 = p2.individuals[p2.individuals.age == 0];
 	offs3 = p3.individuals[p3.individuals.age == 0];
@@ -713,18 +676,18 @@ late()
 	// one divergence report at end of burn-in
 	if (sim.cycle == burninLength)
 	{
-		Acopies_p1 = totalMarkerCopiesInPop(p1, m3);
-		Bcopies_p1 = totalMarkerCopiesInPop(p1, m4);
-		Acopies_p2 = totalMarkerCopiesInPop(p2, m3);
-		Bcopies_p2 = totalMarkerCopiesInPop(p2, m4);
+		Acopies_p1 = totalCopiesInPop(p1, m3);
+		Bcopies_p1 = totalCopiesInPop(p1, m4);
+		Acopies_p2 = totalCopiesInPop(p2, m3);
+		Bcopies_p2 = totalCopiesInPop(p2, m4);
 
 		// both populations started fixed for A, so B copies in p2 represent converted A->B states present at burn-in end
 		AtoB_in_p2 = Bcopies_p2;
 
-		m1copies_p1 = totalBDMICopiesInPop(p1, m1);
-		m2copies_p1 = totalBDMICopiesInPop(p1, m2);
-		m1copies_p2 = totalBDMICopiesInPop(p2, m1);
-		m2copies_p2 = totalBDMICopiesInPop(p2, m2);
+		m1copies_p1 = totalCopiesInPop(p1, m1);
+		m2copies_p1 = totalCopiesInPop(p1, m2);
+		m1copies_p2 = totalCopiesInPop(p2, m1);
+		m2copies_p2 = totalCopiesInPop(p2, m2);
 
 		divHI = abs(meanHI_p2 - meanHI_p1);
 
