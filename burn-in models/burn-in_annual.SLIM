@@ -366,6 +366,46 @@ function (void) addPrivateBDMIsDuringBurnin(void)
 }
 
 
+// ---------- helper functions for reporting ----------
+
+function (integer) countMutTypeCopies(object<Individual> ind, object<MutationType> mt)
+{
+	return size(ind.genomes.mutationsOfType(mt));
+}
+
+
+function (integer) totalMarkerCopiesInPop(object<Subpopulation> pop, object<MutationType> mt)
+{
+	total = 0;
+	for (ind in pop.individuals)
+		total = total + countMutTypeCopies(ind, mt);
+	return total;
+}
+
+
+function (integer) totalBDMICopiesInPop(object<Subpopulation> pop, object<MutationType> mt)
+{
+	total = 0;
+	for (ind in pop.individuals)
+		total = total + countMutTypeCopies(ind, mt);
+	return total;
+}
+
+
+function (numeric) meanHIinPop(object<Subpopulation> pop)
+{
+	if (pop.individualCount == 0)
+		return -1.0;
+
+	sumHI = 0.0;
+	for (ind in pop.individuals)
+		sumHI = sumHI + ind.getValue("HI");
+
+	return sumHI / pop.individualCount;
+}
+
+
+
 
 survival()
 {
@@ -464,7 +504,9 @@ initialize()
 	defineConstant("pBDMI_p2", 0.01);         // per genome per generation
 	defineConstant("pMarkerConvert", 0.01);   // A -> B per marker copy per generation in p2
 
-	defineConstant("OUTFILE", "burnin_secondary_contact_output.txt");
+	// output files
+	defineConstant("TRAJFILE", "burnin_secondary_contact_output.txt");
+	defineConstant("DIVFILE",  "burnin_divergence_report.txt");
 }
 
 
@@ -492,8 +534,12 @@ initialize()
 	updateHIandPositions();
 	updateLocalDensity();
 
-	writeFile(OUTFILE,
-		"gen\tphase\toffspring_p1\toffspring_p2\toffspring_p3\tHIhist_p3_offspring\n",
+	writeFile(TRAJFILE,
+		"gen\tphase\tN_p1\tN_p2\tN_p3\toffspring_p1\toffspring_p2\toffspring_p3\tmeanHI_p1\tmeanHI_p2\tmeanHI_p3\tHIhist_p3_offspring\n",
+		append=F);
+
+	writeFile(DIVFILE,
+		"gen\tN_p1\tN_p2\tmeanHI_p1\tmeanHI_p2\tdivHI\tAcopies_p1\tBcopies_p1\tAcopies_p2\tBcopies_p2\tAtoB_in_p2\tm1copies_p1\tm2copies_p1\tm1copies_p2\tm2copies_p2\n",
 		append=F);
 }
 
@@ -645,14 +691,61 @@ late()
 	h3 = HIhist(offs3, nHIBins);
 	phase = (sim.cycle <= burninLength) ? "burnin" else "postBurnin";
 
-	writeFile(OUTFILE,
+	meanHI_p1 = meanHIinPop(p1);
+	meanHI_p2 = meanHIinPop(p2);
+	meanHI_p3 = meanHIinPop(p3);
+
+	writeFile(TRAJFILE,
 		sim.cycle + "\t" +
 		phase + "\t" +
+		p1.individualCount + "\t" +
+		p2.individualCount + "\t" +
+		p3.individualCount + "\t" +
 		size(offs1) + "\t" +
 		size(offs2) + "\t" +
 		size(offs3) + "\t" +
+		meanHI_p1 + "\t" +
+		meanHI_p2 + "\t" +
+		meanHI_p3 + "\t" +
 		h3 + "\n",
 		append=T);
+
+	// one divergence report at end of burn-in
+	if (sim.cycle == burninLength)
+	{
+		Acopies_p1 = totalMarkerCopiesInPop(p1, m3);
+		Bcopies_p1 = totalMarkerCopiesInPop(p1, m4);
+		Acopies_p2 = totalMarkerCopiesInPop(p2, m3);
+		Bcopies_p2 = totalMarkerCopiesInPop(p2, m4);
+
+		// both populations started fixed for A, so B copies in p2 represent converted A->B states present at burn-in end
+		AtoB_in_p2 = Bcopies_p2;
+
+		m1copies_p1 = totalBDMICopiesInPop(p1, m1);
+		m2copies_p1 = totalBDMICopiesInPop(p1, m2);
+		m1copies_p2 = totalBDMICopiesInPop(p2, m1);
+		m2copies_p2 = totalBDMICopiesInPop(p2, m2);
+
+		divHI = abs(meanHI_p2 - meanHI_p1);
+
+		writeFile(DIVFILE,
+			sim.cycle + "\t" +
+			p1.individualCount + "\t" +
+			p2.individualCount + "\t" +
+			meanHI_p1 + "\t" +
+			meanHI_p2 + "\t" +
+			divHI + "\t" +
+			Acopies_p1 + "\t" +
+			Bcopies_p1 + "\t" +
+			Acopies_p2 + "\t" +
+			Bcopies_p2 + "\t" +
+			AtoB_in_p2 + "\t" +
+			m1copies_p1 + "\t" +
+			m2copies_p1 + "\t" +
+			m1copies_p2 + "\t" +
+			m2copies_p2 + "\n",
+			append=T);
+	}
 }
 
 
