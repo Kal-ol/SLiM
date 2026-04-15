@@ -1,4 +1,4 @@
-function (string) HIhist(object<Individual> inds, integer nBins)
+function (string) phenoHist(object<Individual> inds, integer nBins)
 {
 	if (size(inds) == 0)
 		return "NA";
@@ -7,11 +7,10 @@ function (string) HIhist(object<Individual> inds, integer nBins)
 
 	for (ind in inds)
 	{
-		hi = computeHI(ind);
-		b = asInteger(floor(hi * nBins));
+		p = computePhenotype(ind);
+		b = asInteger(floor(p * nBins));
 		if (b == nBins)
 			b = nBins - 1;
-
 		bins[b] = bins[b] + 1;
 	}
 
@@ -47,16 +46,16 @@ function (void) removeAlleleAtPos(object<Genome> g, object<MutationType> mt, int
 }
 
 
-function (integer) countAnc1InGenome(object<Genome> g)
+function (integer) countAdaptiveTypeInGenome(object<Genome> g, object<MutationType> mt)
 {
-	muts = g.mutationsOfType(m3);
+	muts = g.mutationsOfType(mt);
 	if (size(muts) == 0)
 		return 0;
 
 	pos = muts.position;
 	cnt = 0;
 
-	for (p in markerPos)
+	for (p in adaptivePos)
 		if (sum(pos == p) > 0)
 			cnt = cnt + 1;
 
@@ -64,26 +63,23 @@ function (integer) countAnc1InGenome(object<Genome> g)
 }
 
 
-// Hybrid index: 0 = pure p1-like (all A), 1 = pure p2-like (all B)
-function (numeric) computeHI(object<Individual> ind)
+function (numeric) computePhenotype(object<Individual> ind)
 {
-	c1 = countAnc1InGenome(ind.genome1);
-	c2 = countAnc1InGenome(ind.genome2);
-
-	p1frac = (c1 + c2) / (2.0 * nMarkers);
-	return 1.0 - p1frac;
+	c1 = countAdaptiveTypeInGenome(ind.genome1, m6);
+	c2 = countAdaptiveTypeInGenome(ind.genome2, m6);
+	return (c1 + c2) / (2.0 * nAdaptiveLoci);
 }
 
 
-function (void) updateHIandPositions(void)
+function (void) updatePhenotypeAndPositions(void)
 {
 	for (pop in sim.subpopulations)
 	{
 		for (ind in pop.individuals)
 		{
-			HI = computeHI(ind);
-			ind.setValue("HI", HI);
-			ind.setSpatialPosition(c(HI, 0.0));
+			p = computePhenotype(ind);
+			ind.setValue("pheno", p);
+			ind.setSpatialPosition(c(p, 0.0));
 		}
 	}
 }
@@ -91,9 +87,8 @@ function (void) updateHIandPositions(void)
 
 function (void) updateLocalDensity(void)
 {
-	updateHIandPositions();
+	updatePhenotypeAndPositions();
 
-	// burn-in: density is calculated separately within p1 and p2
 	if (sim.cycle <= burninLength)
 	{
 		if (p1.individualCount > 0)
@@ -118,7 +113,6 @@ function (void) updateLocalDensity(void)
 	}
 	else
 	{
-		// post-burn-in: shared density across all populations
 		inds = sim.subpopulations.individuals;
 		if (size(inds) == 0)
 			return;
@@ -126,10 +120,7 @@ function (void) updateLocalDensity(void)
 		i1.evaluate(sim.subpopulations);
 
 		for (ind in inds)
-		{
-			Nlocal = i1.totalOfNeighborStrengths(ind);
-			ind.setValue("Nlocal", Nlocal);
-		}
+			ind.setValue("Nlocal", i1.totalOfNeighborStrengths(ind));
 	}
 }
 
@@ -139,9 +130,9 @@ function (object<Individual>) chooseMateAssort(object<Individual> focal, object<
 	if (size(candidates) == 0)
 		return NULL;
 
-	HIf = focal.getValue("HI");
-	if (isNULL(HIf))
-		HIf = computeHI(focal);
+	pf = focal.getValue("pheno");
+	if (isNULL(pf))
+		pf = computePhenotype(focal);
 
 	cands = c();
 	weights = c();
@@ -150,11 +141,11 @@ function (object<Individual>) chooseMateAssort(object<Individual> focal, object<
 	{
 		if (!(excludeSelf & (m == focal)))
 		{
-			HIm = m.getValue("HI");
-			if (isNULL(HIm))
-				HIm = computeHI(m);
+			pm = m.getValue("pheno");
+			if (isNULL(pm))
+				pm = computePhenotype(m);
 
-			d = HIf - HIm;
+			d = pf - pm;
 			w = exp(-(d * d) / (2.0 * sigma_m * sigma_m));
 			if (w < epsilon_w)
 				w = epsilon_w;
@@ -225,24 +216,6 @@ function (numeric) bdmiMultiplierOrleach(object<Individual> ind)
 }
 
 
-function (void) moveAllHybridGenotypesToP3(void)
-{
-	for (pop in c(p1, p2))
-	{
-		for (ind in pop.individuals)
-		{
-			if (ind.age == 0)
-			{
-				hi = computeHI(ind);
-
-				if ((hi > 0.0) & (hi < 1.0))
-					ind.setValue("migrateToP3", T);
-			}
-		}
-	}
-}
-
-
 function (void) migrateFlaggedHybrids(void)
 {
 	migrants = c();
@@ -264,36 +237,78 @@ function (void) migrateFlaggedHybrids(void)
 }
 
 
-// count number of derived B marker alleles (m4)
-function (integer) countBMarkers(object<Individual> ind)
+function (void) convertAdaptiveState(object<Genome> g, integer pos, object<MutationType> fromMT, object<MutationType> toMT)
 {
-	c1 = size(ind.genome1.mutationsOfType(m4));
-	c2 = size(ind.genome2.mutationsOfType(m4));
-	return c1 + c2;
+	removeAlleleAtPos(g, fromMT, pos);
+	addAllele(g, toMT, pos);
 }
 
 
-// p2-only A -> B transition during burn-in
-function (void) convertMarkerAtoBInP2(void)
+function (void) updateAdaptiveLoci(void)
 {
-	if (sim.cycle > burninLength)
-		return;
-
 	for (ind in p2.individuals)
 	{
 		for (g in ind.genomes)
 		{
-			for (pos in markerPos)
+			for (pos in adaptivePos)
 			{
-				hasA = sum(g.mutationsOfType(m3).position == pos) > 0;
-				hasB = sum(g.mutationsOfType(m4).position == pos) > 0;
+				has5 = sum(g.mutationsOfType(m5).position == pos) > 0;
+				has6 = sum(g.mutationsOfType(m6).position == pos) > 0;
 
-				if (hasA & !hasB)
+				if (sim.cycle <= burninLength)
 				{
-					if (runif(1) < pMarkerConvert)
+					if (has5 & !has6)
 					{
-						removeAlleleAtPos(g, m3, pos);
-						addAllele(g, m4, pos);
+						if (runif(1) < pAdaptiveBurnin)
+							convertAdaptiveState(g, pos, m5, m6);
+					}
+				}
+				else
+				{
+					if (has5 & !has6)
+					{
+						if (runif(1) < pAdaptiveForward)
+							convertAdaptiveState(g, pos, m5, m6);
+					}
+					else
+					{
+						if (has6 & !has5)
+						{
+							if (runif(1) < pAdaptiveBackward)
+								convertAdaptiveState(g, pos, m6, m5);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if (sim.cycle > burninLength)
+	{
+		for (pop in c(p1, p3))
+		{
+			for (ind in pop.individuals)
+			{
+				for (g in ind.genomes)
+				{
+					for (pos in adaptivePos)
+					{
+						has5 = sum(g.mutationsOfType(m5).position == pos) > 0;
+						has6 = sum(g.mutationsOfType(m6).position == pos) > 0;
+
+						if (has5 & !has6)
+						{
+							if (runif(1) < pAdaptiveForward)
+								convertAdaptiveState(g, pos, m5, m6);
+						}
+						else
+						{
+							if (has6 & !has5)
+							{
+								if (runif(1) < pAdaptiveBackward)
+									convertAdaptiveState(g, pos, m6, m5);
+							}
+						}
 					}
 				}
 			}
@@ -302,41 +317,36 @@ function (void) convertMarkerAtoBInP2(void)
 }
 
 
-// private BDMI accumulation during burn-in
 function (void) addPrivateBDMIsDuringBurnin(void)
 {
 	if (sim.cycle > burninLength)
 		return;
 
-	// p1 gets only m1
 	for (ind in p1.individuals)
 	{
 		for (g in ind.genomes)
 		{
 			if (runif(1) < pBDMI_p1)
 			{
-				pos = rdunif(1, 0, L - 1);
+				pos = rdunif(1, bdmiStart, bdmiEnd);
 				addAllele(g, m1, pos);
 			}
 		}
 	}
 
-	// p2 gets only m2
 	for (ind in p2.individuals)
 	{
 		for (g in ind.genomes)
 		{
 			if (runif(1) < pBDMI_p2)
 			{
-				pos = rdunif(1, 0, L - 1);
+				pos = rdunif(1, bdmiStart, bdmiEnd);
 				addAllele(g, m2, pos);
 			}
 		}
 	}
 }
 
-
-// ---------- helper functions for reporting ----------
 
 function (integer) countMutTypeCopies(object<Individual> ind, object<MutationType> mt)
 {
@@ -353,127 +363,158 @@ function (integer) totalCopiesInPop(object<Subpopulation> pop, object<MutationTy
 }
 
 
-function (numeric) meanHIinPop(object<Subpopulation> pop)
+function (numeric) meanPhenoinPop(object<Subpopulation> pop)
 {
 	if (pop.individualCount == 0)
 		return -1.0;
 
-	sumHI = 0.0;
+	sumP = 0.0;
 	for (ind in pop.individuals)
-		sumHI = sumHI + computeHI(ind);
+		sumP = sumP + computePhenotype(ind);
 
-	return sumHI / pop.individualCount;
+	return sumP / pop.individualCount;
 }
 
 
+function (string) classifyPheno(object<Individual> ind)
+{
+	p = computePhenotype(ind);
+
+	if (p <= hybridLower)
+		return "p1";
+	if (p >= hybridUpper)
+		return "p2";
+	return "hybrid";
+}
+
+
+function (string) countClassesAll(object<Individual> inds)
+{
+	n1 = 0;
+	n2 = 0;
+	nh = 0;
+
+	if (size(inds) == 0)
+		return "0\t0\t0";
+
+	for (ind in inds)
+	{
+		cl = classifyPheno(ind);
+
+		if (cl == "p1")
+			n1 = n1 + 1;
+		else
+		{
+			if (cl == "p2")
+				n2 = n2 + 1;
+			else
+				nh = nh + 1;
+		}
+	}
+
+	return n1 + "\t" + n2 + "\t" + nh;
+}
 
 
 survival()
 {
-	// newborn viability selection
 	if (individual.age == 0)
 	{
-		// no BDMI viability penalty during burn-in
 		if (sim.cycle <= burninLength)
 			return T;
 
 		p = bdmiMultiplierOrleach(individual);
 
-		if (p < 0.01) p = 0.01;
-		if (p > 0.99) p = 0.99;
+		if (p < 0.01)
+			p = 0.01;
+		if (p > 0.99)
+			p = 0.99;
 
 		return (runif(1) < p);
 	}
 
-	// adults
 	if (annualModel)
-	{
 		return F;
-	}
-	else
-	{
-		return (runif(1) < adultSurvival);
-	}
-}
 
+	return (runif(1) < adultSurvival);
+}
 
 
 initialize()
 {
 	initializeSLiMModelType("nonWF");
-	initializeSLiMOptions(keepPedigrees=F, dimensionality="xy");
+	initializeSLiMOptions(keepPedigrees=T, dimensionality="xy");
+	
 
-	defineConstant("nHIBins", 10);
+	defineConstant("nPhenoBins", 10);
 
-	// life history
 	defineConstant("annualModel", T);
 	defineConstant("adultSurvival", 0.70);
 
-	// timing
 	defineConstant("burninLength", 2000);
 	defineConstant("postBurninLength", 2000);
 	defineConstant("endGen", burninLength + postBurninLength);
 
-	// genome
 	defineConstant("L", 100000);
-	initializeMutationRate(0.0);   // private BDMI and marker changes are handled manually
+	initializeMutationRate(0.0);
 	initializeRecombinationRate(1e-3);
 
-	// BDMI mutation types
+	defineConstant("bdmiStart", 0);
+	defineConstant("bdmiEnd", 49999);
+	defineConstant("adaptStart", 50000);
+	defineConstant("adaptEnd", L - 1);
+
 	initializeMutationType("m1", 0.5, "f", 0.0);
 	initializeMutationType("m2", 0.5, "f", 0.0);
 	m1.convertToSubstitution = F;
 	m2.convertToSubstitution = F;
 
-	// ancestry markers
-	// m3 = ancestral A, m4 = derived B
-	initializeMutationType("m3", 0.5, "f", 0.0);
-	initializeMutationType("m4", 0.5, "f", 0.0);
-	m3.convertToSubstitution = F;
-	m4.convertToSubstitution = F;
+	initializeMutationType("m5", 0.5, "f", 0.0);
+	initializeMutationType("m6", 0.5, "f", 0.0);
+	m5.convertToSubstitution = F;
+	m6.convertToSubstitution = F;
 
-	initializeGenomicElementType("g1", c(m1, m2, m3, m4), c(1.0, 1.0, 1.0, 1.0));
-	initializeGenomicElement(g1, 0, L - 1);
+	initializeGenomicElementType("g1", c(m1, m2), c(1.0, 1.0));
+	initializeGenomicElementType("g2", c(m5, m6), c(1.0, 1.0));
 
-	defineConstant("nMarkers", 20);
-	defineConstant("markerStart", 1000);
-	defineConstant("markerEnd",   L - 1000);
-	defineConstant("markerStep", asInteger((markerEnd - markerStart) / (nMarkers - 1)));
-	defineConstant("markerPos", asInteger(seq(from=markerStart, to=markerEnd, by=markerStep)));
+	initializeGenomicElement(g1, bdmiStart, bdmiEnd);
+	initializeGenomicElement(g2, adaptStart, adaptEnd);
 
-	// reproduction / density
+	defineConstant("nAdaptiveLoci", 20);
+	defineConstant("adaptiveStep", asInteger((adaptEnd - adaptStart) / (nAdaptiveLoci - 1)));
+	defineConstant("adaptivePos", asInteger(seq(from=adaptStart, to=adaptEnd, by=adaptiveStep)));
+
 	defineConstant("maxOvules_p1p2", 3);
-	defineConstant("maxOvules_p3",   3);
+	defineConstant("maxOvules_p3", 3);
 	defineConstant("dd_rate0", 0.50);
-	defineConstant("alpha",    0.01);
+	defineConstant("alpha", 0.01);
 
-	// hybridization
 	defineConstant("hybridizationRate", 0.001);
 
-	// assortative mating
-	defineConstant("sigma_m",   0.15);
+	defineConstant("sigma_m", 0.15);
 	defineConstant("epsilon_w", 1e-6);
 	defineConstant("excludeSelf", T);
 
-	// HI-space competition kernel
-	defineConstant("sigma_HI", 0.20);
+	defineConstant("sigma_pheno", 0.20);
 	initializeInteractionType(1, "xy", reciprocal=T, maxDistance=1.0);
-	i1.setInteractionFunction("n", 1.0, sigma_HI);
+	i1.setInteractionFunction("n", 1.0, sigma_pheno);
 
-	// BDMI effects
 	defineConstant("sb", 0.30);
 	defineConstant("hb", 0.50);
 
-	// burn-in mutation / transition rates
-	defineConstant("pBDMI_p1", 0.01);         // per genome per generation
-	defineConstant("pBDMI_p2", 0.01);         // per genome per generation
-	defineConstant("pMarkerConvert", 0.01);   // A -> B per marker copy per generation in p2
+	defineConstant("pBDMI_p1", 0.01);
+	defineConstant("pBDMI_p2", 0.01);
+	defineConstant("pAdaptiveBurnin", 0.01);
+	defineConstant("pAdaptiveForward", 0.0005);
+	defineConstant("pAdaptiveBackward", 0.0005);
 
-	// output files
+	defineConstant("hybridLower", 0.10);
+	defineConstant("hybridUpper", 0.90);
+
 	defineConstant("TRAJFILE", "burnin_secondary_contact_output.txt");
-	defineConstant("DIVFILE",  "burnin_divergence_report.txt");
+	defineConstant("DIVFILE", "burnin_divergence_report.txt");
+	
 }
-
 
 
 1 first()
@@ -482,51 +523,45 @@ initialize()
 	sim.addSubpop("p2", 150);
 	sim.addSubpop("p3", 0);
 
-	// founders start as adults
-	for (ind in p1.individuals) ind.age = 1;
-	for (ind in p2.individuals) ind.age = 1;
-
-	// both p1 and p2 start fixed for ancestral A (m3)
 	for (ind in c(p1.individuals, p2.individuals))
 	{
-		for (p in markerPos)
+		for (p in adaptivePos)
 		{
-			addAllele(ind.genome1, m3, p);
-			addAllele(ind.genome2, m3, p);
+			addAllele(ind.genome1, m5, p);
+			addAllele(ind.genome2, m5, p);
 		}
 	}
 
-	updateHIandPositions();
+	for (ind in p1.individuals)
+		ind.age = 1;
+	for (ind in p2.individuals)
+		ind.age = 1;
+
+	updatePhenotypeAndPositions();
 	updateLocalDensity();
 
 	writeFile(TRAJFILE,
-		"gen\tphase\tN_p1\tN_p2\tN_p3\toffspring_p1\toffspring_p2\toffspring_p3\tmeanHI_p1\tmeanHI_p2\tmeanHI_p3\tHIhist_p3_offspring\n",
+		"gen\tphase\tN_total\tN_p1\tN_p2\tN_p3\tclass_p1\tclass_p2\tclass_hybrid\tmeanPheno_p1\tmeanPheno_p2\tmeanPheno_p3\tphenoHist_p3\n",
 		append=F);
 
 	writeFile(DIVFILE,
-		"gen\tN_p1\tN_p2\tmeanHI_p1\tmeanHI_p2\tdivHI\tAcopies_p1\tBcopies_p1\tAcopies_p2\tBcopies_p2\tAtoB_in_p2\tm1copies_p1\tm2copies_p1\tm1copies_p2\tm2copies_p2\n",
+		"gen\tN_p1\tN_p2\tmeanPheno_p1\tmeanPheno_p2\tdivPheno\tm5copies_p1\tm6copies_p1\tm5copies_p2\tm6copies_p2\tm1copies_p1\tm2copies_p1\tm1copies_p2\tm2copies_p2\n",
 		append=F);
 }
-
 
 
 early()
 {
-	// burn-in only processes
 	if (sim.cycle <= burninLength)
-	{
 		addPrivateBDMIsDuringBurnin();
-		convertMarkerAtoBInP2();
-	}
 
+	updateAdaptiveLoci();
 	updateLocalDensity();
 }
 
 
-
 reproduction()
 {
-	// only adults reproduce
 	if (individual.age == 0)
 		return;
 
@@ -534,11 +569,12 @@ reproduction()
 	if (isNULL(Nlocal))
 		Nlocal = 0.0;
 
-	// base density-dependent fertilization
 	fertilizationRate = dd_rate0 / (1.0 + alpha * Nlocal);
 
-	if (fertilizationRate < 0.0) fertilizationRate = 0.0;
-	if (fertilizationRate > 1.0) fertilizationRate = 1.0;
+	if (fertilizationRate < 0.0)
+		fertilizationRate = 0.0;
+	if (fertilizationRate > 1.0)
+		fertilizationRate = 1.0;
 
 	hybRate = (sim.cycle <= burninLength) ? 0.0 else hybridizationRate;
 
@@ -553,8 +589,10 @@ reproduction()
 			if (doHybrid)
 			{
 				candidates = c();
-				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
-				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				if (p2.individualCount > 0)
+					candidates = c(candidates, p2.individuals);
+				if (p3.individualCount > 0)
+					candidates = c(candidates, p3.individuals);
 
 				if (size(candidates) > 0)
 					mate = chooseMateAssort(individual, candidates);
@@ -567,7 +605,11 @@ reproduction()
 			}
 
 			if (!isNULL(mate))
+			{
 				kid = subpop.addCrossed(individual, mate);
+				if (mate.subpopulation != p1)
+					kid.setValue("migrateToP3", T);
+			}
 		}
 		return;
 	}
@@ -583,8 +625,10 @@ reproduction()
 			if (doHybrid)
 			{
 				candidates = c();
-				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
-				if (p3.individualCount > 0) candidates = c(candidates, p3.individuals);
+				if (p1.individualCount > 0)
+					candidates = c(candidates, p1.individuals);
+				if (p3.individualCount > 0)
+					candidates = c(candidates, p3.individuals);
 
 				if (size(candidates) > 0)
 					mate = chooseMateAssort(individual, candidates);
@@ -597,14 +641,17 @@ reproduction()
 			}
 
 			if (!isNULL(mate))
+			{
 				kid = subpop.addCrossed(individual, mate);
+				if (mate.subpopulation != p2)
+					kid.setValue("migrateToP3", T);
+			}
 		}
 		return;
 	}
 
 	if (subpop == p3)
 	{
-		// p3 should only matter after burn-in
 		if (sim.cycle <= burninLength)
 			return;
 
@@ -617,8 +664,10 @@ reproduction()
 			if (doBackcross)
 			{
 				candidates = c();
-				if (p1.individualCount > 0) candidates = c(candidates, p1.individuals);
-				if (p2.individualCount > 0) candidates = c(candidates, p2.individuals);
+				if (p1.individualCount > 0)
+					candidates = c(candidates, p1.individuals);
+				if (p2.individualCount > 0)
+					candidates = c(candidates, p2.individuals);
 
 				if (size(candidates) > 0)
 					mate = chooseMateAssort(individual, candidates);
@@ -638,71 +687,60 @@ reproduction()
 }
 
 
-
 late()
 {
 	if (sim.cycle > burninLength)
-	{
-		moveAllHybridGenotypesToP3();
 		migrateFlaggedHybrids();
-	}
 
-	offs1 = p1.individuals[p1.individuals.age == 0];
-	offs2 = p2.individuals[p2.individuals.age == 0];
-	offs3 = p3.individuals[p3.individuals.age == 0];
+	allInds = sim.subpopulations.individuals;
+	classCounts = countClassesAll(allInds);
 
-	h3 = HIhist(offs3, nHIBins);
+	h3 = phenoHist(p3.individuals, nPhenoBins);
 	phase = (sim.cycle <= burninLength) ? "burnin" else "postBurnin";
 
-	meanHI_p1 = meanHIinPop(p1);
-	meanHI_p2 = meanHIinPop(p2);
-	meanHI_p3 = meanHIinPop(p3);
+	meanPheno_p1 = meanPhenoinPop(p1);
+	meanPheno_p2 = meanPhenoinPop(p2);
+	meanPheno_p3 = meanPhenoinPop(p3);
 
 	writeFile(TRAJFILE,
 		sim.cycle + "\t" +
 		phase + "\t" +
+		size(allInds) + "\t" +
 		p1.individualCount + "\t" +
 		p2.individualCount + "\t" +
 		p3.individualCount + "\t" +
-		size(offs1) + "\t" +
-		size(offs2) + "\t" +
-		size(offs3) + "\t" +
-		meanHI_p1 + "\t" +
-		meanHI_p2 + "\t" +
-		meanHI_p3 + "\t" +
+		classCounts + "\t" +
+		meanPheno_p1 + "\t" +
+		meanPheno_p2 + "\t" +
+		meanPheno_p3 + "\t" +
 		h3 + "\n",
 		append=T);
 
-	// one divergence report at end of burn-in
 	if (sim.cycle == burninLength)
 	{
-		Acopies_p1 = totalCopiesInPop(p1, m3);
-		Bcopies_p1 = totalCopiesInPop(p1, m4);
-		Acopies_p2 = totalCopiesInPop(p2, m3);
-		Bcopies_p2 = totalCopiesInPop(p2, m4);
-
-		// both populations started fixed for A, so B copies in p2 represent converted A->B states present at burn-in end
-		AtoB_in_p2 = Bcopies_p2;
+		m5copies_p1 = totalCopiesInPop(p1, m5);
+		m6copies_p1 = totalCopiesInPop(p1, m6);
+		m5copies_p2 = totalCopiesInPop(p2, m5);
+		m6copies_p2 = totalCopiesInPop(p2, m6);
 
 		m1copies_p1 = totalCopiesInPop(p1, m1);
 		m2copies_p1 = totalCopiesInPop(p1, m2);
 		m1copies_p2 = totalCopiesInPop(p2, m1);
 		m2copies_p2 = totalCopiesInPop(p2, m2);
 
-		divHI = abs(meanHI_p2 - meanHI_p1);
+		divPheno = abs(meanPheno_p2 - meanPheno_p1);
 
 		writeFile(DIVFILE,
 			sim.cycle + "\t" +
 			p1.individualCount + "\t" +
 			p2.individualCount + "\t" +
-			meanHI_p1 + "\t" +
-			meanHI_p2 + "\t" +
-			divHI + "\t" +
-			Acopies_p1 + "\t" +
-			Bcopies_p1 + "\t" +
-			Acopies_p2 + "\t" +
-			Bcopies_p2 + "\t" +
-			AtoB_in_p2 + "\t" +
+			meanPheno_p1 + "\t" +
+			meanPheno_p2 + "\t" +
+			divPheno + "\t" +
+			m5copies_p1 + "\t" +
+			m6copies_p1 + "\t" +
+			m5copies_p2 + "\t" +
+			m6copies_p2 + "\t" +
 			m1copies_p1 + "\t" +
 			m2copies_p1 + "\t" +
 			m1copies_p2 + "\t" +
@@ -710,7 +748,6 @@ late()
 			append=T);
 	}
 }
-
 
 
 endGen late()
