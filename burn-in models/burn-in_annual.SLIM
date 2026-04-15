@@ -1,27 +1,3 @@
-function (string) phenoHist(object<Individual> inds, integer nBins)
-{
-	if (size(inds) == 0)
-		return "NA";
-
-	bins = integer(nBins);
-
-	for (ind in inds)
-	{
-		p = computePhenotype(ind);
-		b = asInteger(floor(p * nBins));
-		if (b == nBins)
-			b = nBins - 1;
-		bins[b] = bins[b] + 1;
-	}
-
-	out = "";
-	for (i in seqLen(nBins))
-		out = out + bins[i] + (i < (nBins - 1) ? "," else "");
-
-	return out;
-}
-
-
 function (void) addAllele(object<Genome> g, object<MutationType> mt, integer pos)
 {
 	muts = g.mutationsOfType(mt);
@@ -31,18 +7,6 @@ function (void) addAllele(object<Genome> g, object<MutationType> mt, integer pos
 			return;
 	}
 	g.addNewDrawnMutation(mt, pos);
-}
-
-
-function (void) removeAlleleAtPos(object<Genome> g, object<MutationType> mt, integer pos)
-{
-	muts = g.mutationsOfType(mt);
-	if (size(muts) == 0)
-		return;
-
-	target = muts[muts.position == pos];
-	if (size(target) > 0)
-		g.removeMutations(target);
 }
 
 
@@ -237,15 +201,29 @@ function (void) migrateFlaggedHybrids(void)
 }
 
 
-function (void) convertAdaptiveState(object<Genome> g, integer pos, object<MutationType> fromMT, object<MutationType> toMT)
+function (void) addPrivateAdaptiveAllelesDuringBurnin(void)
 {
-	removeAlleleAtPos(g, fromMT, pos);
-	addAllele(g, toMT, pos);
-}
+	if (sim.cycle > burninLength)
+		return;
 
+	for (ind in p1.individuals)
+	{
+		for (g in ind.genomes)
+		{
+			for (pos in adaptivePos)
+			{
+				has5 = sum(g.mutationsOfType(m5).position == pos) > 0;
+				has6 = sum(g.mutationsOfType(m6).position == pos) > 0;
 
-function (void) updateAdaptiveLoci(void)
-{
+				if (!has5 & !has6)
+				{
+					if (runif(1) < pAdaptive_p1)
+						addAllele(g, m5, pos);
+				}
+			}
+		}
+	}
+
 	for (ind in p2.individuals)
 	{
 		for (g in ind.genomes)
@@ -255,61 +233,10 @@ function (void) updateAdaptiveLoci(void)
 				has5 = sum(g.mutationsOfType(m5).position == pos) > 0;
 				has6 = sum(g.mutationsOfType(m6).position == pos) > 0;
 
-				if (sim.cycle <= burninLength)
+				if (!has5 & !has6)
 				{
-					if (has5 & !has6)
-					{
-						if (runif(1) < pAdaptiveBurnin)
-							convertAdaptiveState(g, pos, m5, m6);
-					}
-				}
-				else
-				{
-					if (has5 & !has6)
-					{
-						if (runif(1) < pAdaptiveForward)
-							convertAdaptiveState(g, pos, m5, m6);
-					}
-					else
-					{
-						if (has6 & !has5)
-						{
-							if (runif(1) < pAdaptiveBackward)
-								convertAdaptiveState(g, pos, m6, m5);
-						}
-					}
-				}
-			}
-		}
-	}
-
-	if (sim.cycle > burninLength)
-	{
-		for (pop in c(p1, p3))
-		{
-			for (ind in pop.individuals)
-			{
-				for (g in ind.genomes)
-				{
-					for (pos in adaptivePos)
-					{
-						has5 = sum(g.mutationsOfType(m5).position == pos) > 0;
-						has6 = sum(g.mutationsOfType(m6).position == pos) > 0;
-
-						if (has5 & !has6)
-						{
-							if (runif(1) < pAdaptiveForward)
-								convertAdaptiveState(g, pos, m5, m6);
-						}
-						else
-						{
-							if (has6 & !has5)
-							{
-								if (runif(1) < pAdaptiveBackward)
-									convertAdaptiveState(g, pos, m6, m5);
-							}
-						}
-					}
+					if (runif(1) < pAdaptive_p2)
+						addAllele(g, m6, pos);
 				}
 			}
 		}
@@ -376,46 +303,6 @@ function (numeric) meanPhenoinPop(object<Subpopulation> pop)
 }
 
 
-function (string) classifyPheno(object<Individual> ind)
-{
-	p = computePhenotype(ind);
-
-	if (p <= hybridLower)
-		return "p1";
-	if (p >= hybridUpper)
-		return "p2";
-	return "hybrid";
-}
-
-
-function (string) countClassesAll(object<Individual> inds)
-{
-	n1 = 0;
-	n2 = 0;
-	nh = 0;
-
-	if (size(inds) == 0)
-		return "0\t0\t0";
-
-	for (ind in inds)
-	{
-		cl = classifyPheno(ind);
-
-		if (cl == "p1")
-			n1 = n1 + 1;
-		else
-		{
-			if (cl == "p2")
-				n2 = n2 + 1;
-			else
-				nh = nh + 1;
-		}
-	}
-
-	return n1 + "\t" + n2 + "\t" + nh;
-}
-
-
 survival()
 {
 	if (individual.age == 0)
@@ -443,10 +330,7 @@ survival()
 initialize()
 {
 	initializeSLiMModelType("nonWF");
-	initializeSLiMOptions(keepPedigrees=T, dimensionality="xy");
-	
-
-	defineConstant("nPhenoBins", 10);
+	initializeSLiMOptions(keepPedigrees=F, dimensionality="xy");
 
 	defineConstant("annualModel", T);
 	defineConstant("adultSurvival", 0.70);
@@ -504,16 +388,11 @@ initialize()
 
 	defineConstant("pBDMI_p1", 0.01);
 	defineConstant("pBDMI_p2", 0.01);
-	defineConstant("pAdaptiveBurnin", 0.01);
-	defineConstant("pAdaptiveForward", 0.0005);
-	defineConstant("pAdaptiveBackward", 0.0005);
-
-	defineConstant("hybridLower", 0.10);
-	defineConstant("hybridUpper", 0.90);
+	defineConstant("pAdaptive_p1", 0.01);
+	defineConstant("pAdaptive_p2", 0.01);
 
 	defineConstant("TRAJFILE", "burnin_secondary_contact_output.txt");
 	defineConstant("DIVFILE", "burnin_divergence_report.txt");
-	
 }
 
 
@@ -522,15 +401,6 @@ initialize()
 	sim.addSubpop("p1", 150);
 	sim.addSubpop("p2", 150);
 	sim.addSubpop("p3", 0);
-
-	for (ind in c(p1.individuals, p2.individuals))
-	{
-		for (p in adaptivePos)
-		{
-			addAllele(ind.genome1, m5, p);
-			addAllele(ind.genome2, m5, p);
-		}
-	}
 
 	for (ind in p1.individuals)
 		ind.age = 1;
@@ -541,7 +411,7 @@ initialize()
 	updateLocalDensity();
 
 	writeFile(TRAJFILE,
-		"gen\tphase\tN_total\tN_p1\tN_p2\tN_p3\tclass_p1\tclass_p2\tclass_hybrid\tmeanPheno_p1\tmeanPheno_p2\tmeanPheno_p3\tphenoHist_p3\n",
+		"gen\tphase\tN_total\tN_p1\tN_p2\tN_p3\n",
 		append=F);
 
 	writeFile(DIVFILE,
@@ -553,9 +423,11 @@ initialize()
 early()
 {
 	if (sim.cycle <= burninLength)
+	{
 		addPrivateBDMIsDuringBurnin();
+		addPrivateAdaptiveAllelesDuringBurnin();
+	}
 
-	updateAdaptiveLoci();
 	updateLocalDensity();
 }
 
@@ -693,14 +565,7 @@ late()
 		migrateFlaggedHybrids();
 
 	allInds = sim.subpopulations.individuals;
-	classCounts = countClassesAll(allInds);
-
-	h3 = phenoHist(p3.individuals, nPhenoBins);
 	phase = (sim.cycle <= burninLength) ? "burnin" else "postBurnin";
-
-	meanPheno_p1 = meanPhenoinPop(p1);
-	meanPheno_p2 = meanPhenoinPop(p2);
-	meanPheno_p3 = meanPhenoinPop(p3);
 
 	writeFile(TRAJFILE,
 		sim.cycle + "\t" +
@@ -708,16 +573,14 @@ late()
 		size(allInds) + "\t" +
 		p1.individualCount + "\t" +
 		p2.individualCount + "\t" +
-		p3.individualCount + "\t" +
-		classCounts + "\t" +
-		meanPheno_p1 + "\t" +
-		meanPheno_p2 + "\t" +
-		meanPheno_p3 + "\t" +
-		h3 + "\n",
+		p3.individualCount + "\n",
 		append=T);
 
 	if (sim.cycle == burninLength)
 	{
+		meanPheno_p1 = meanPhenoinPop(p1);
+		meanPheno_p2 = meanPhenoinPop(p2);
+
 		m5copies_p1 = totalCopiesInPop(p1, m5);
 		m6copies_p1 = totalCopiesInPop(p1, m6);
 		m5copies_p2 = totalCopiesInPop(p2, m5);
