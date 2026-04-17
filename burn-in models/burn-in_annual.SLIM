@@ -27,11 +27,41 @@ function (integer) countAdaptiveTypeInGenome(object<Genome> g, object<MutationTy
 }
 
 
+function (integer) countNeutralTypeInGenome(object<Genome> g, object<MutationType> mt)
+{
+	muts = g.mutationsOfType(mt);
+	if (size(muts) == 0)
+		return 0;
+
+	pos = muts.position;
+	cnt = 0;
+
+	for (p in neutralPos)
+		if (sum(pos == p) > 0)
+			cnt = cnt + 1;
+
+	return cnt;
+}
+
+
 function (numeric) computePhenotype(object<Individual> ind)
 {
-	c1 = countAdaptiveTypeInGenome(ind.genome1, m6);
-	c2 = countAdaptiveTypeInGenome(ind.genome2, m6);
-	return (c1 + c2) / (2.0 * nAdaptiveLoci);
+	n5 = countAdaptiveTypeInGenome(ind.genome1, m5) + countAdaptiveTypeInGenome(ind.genome2, m5);
+	n6 = countAdaptiveTypeInGenome(ind.genome1, m6) + countAdaptiveTypeInGenome(ind.genome2, m6);
+
+	total = n5 + n6;
+	if (total == 0)
+		return 0.5;
+
+	return n6 / total;
+}
+
+
+function (numeric) computeAncestryIndex(object<Individual> ind)
+{
+	c1 = countNeutralTypeInGenome(ind.genome1, m8);
+	c2 = countNeutralTypeInGenome(ind.genome2, m8);
+	return (c1 + c2) / (2.0 * nNeutralLoci);
 }
 
 
@@ -137,7 +167,7 @@ function (integer) copiesOfMutation(object<Individual> ind, object<Mutation> mu)
 }
 
 
-function (numeric) bdmiMultiplierOrleach(object<Individual> ind)
+function (numeric) bdmiMultiplier(object<Individual> ind)
 {
 	M1 = unique(ind.genomes.mutationsOfType(m1));
 	M2 = unique(ind.genomes.mutationsOfType(m2));
@@ -201,26 +231,14 @@ function (void) migrateFlaggedHybrids(void)
 }
 
 
-function (void) addPrivateAdaptiveAllelesDuringBurnin(void)
+function (void) seedNeutralAncestryMarkers(void)
 {
-	if (sim.cycle > burninLength)
-		return;
-
 	for (ind in p1.individuals)
 	{
 		for (g in ind.genomes)
 		{
-			for (pos in adaptivePos)
-			{
-				has5 = sum(g.mutationsOfType(m5).position == pos) > 0;
-				has6 = sum(g.mutationsOfType(m6).position == pos) > 0;
-
-				if (!has5 & !has6)
-				{
-					if (runif(1) < pAdaptive_p1)
-						addAllele(g, m5, pos);
-				}
-			}
+			for (pos in neutralPos)
+				addAllele(g, m7, pos);
 		}
 	}
 
@@ -228,48 +246,8 @@ function (void) addPrivateAdaptiveAllelesDuringBurnin(void)
 	{
 		for (g in ind.genomes)
 		{
-			for (pos in adaptivePos)
-			{
-				has5 = sum(g.mutationsOfType(m5).position == pos) > 0;
-				has6 = sum(g.mutationsOfType(m6).position == pos) > 0;
-
-				if (!has5 & !has6)
-				{
-					if (runif(1) < pAdaptive_p2)
-						addAllele(g, m6, pos);
-				}
-			}
-		}
-	}
-}
-
-
-function (void) addPrivateBDMIsDuringBurnin(void)
-{
-	if (sim.cycle > burninLength)
-		return;
-
-	for (ind in p1.individuals)
-	{
-		for (g in ind.genomes)
-		{
-			if (runif(1) < pBDMI_p1)
-			{
-				pos = rdunif(1, bdmiStart, bdmiEnd);
-				addAllele(g, m1, pos);
-			}
-		}
-	}
-
-	for (ind in p2.individuals)
-	{
-		for (g in ind.genomes)
-		{
-			if (runif(1) < pBDMI_p2)
-			{
-				pos = rdunif(1, bdmiStart, bdmiEnd);
-				addAllele(g, m2, pos);
-			}
+			for (pos in neutralPos)
+				addAllele(g, m8, pos);
 		}
 	}
 }
@@ -303,6 +281,19 @@ function (numeric) meanPhenoinPop(object<Subpopulation> pop)
 }
 
 
+function (numeric) meanAncestryInPop(object<Subpopulation> pop)
+{
+	if (pop.individualCount == 0)
+		return -1.0;
+
+	sumA = 0.0;
+	for (ind in pop.individuals)
+		sumA = sumA + computeAncestryIndex(ind);
+
+	return sumA / pop.individualCount;
+}
+
+
 survival()
 {
 	if (individual.age == 0)
@@ -310,7 +301,7 @@ survival()
 		if (sim.cycle <= burninLength)
 			return T;
 
-		p = bdmiMultiplierOrleach(individual);
+		p = bdmiMultiplier(individual);
 
 		if (p < 0.01)
 			p = 0.01;
@@ -327,10 +318,17 @@ survival()
 }
 
 
+modifyChild()
+{
+	return T;
+}
+
+
 initialize()
 {
 	initializeSLiMModelType("nonWF");
-	initializeSLiMOptions(keepPedigrees=F, dimensionality="xy");
+	initializeSLiMOptions(keepPedigrees=T, dimensionality="xy");
+	initializeTreeSeq();
 
 	defineConstant("annualModel", T);
 	defineConstant("adultSurvival", 0.70);
@@ -339,14 +337,27 @@ initialize()
 	defineConstant("postBurninLength", 2000);
 	defineConstant("endGen", burninLength + postBurninLength);
 
-	defineConstant("L", 100000);
-	initializeMutationRate(0.0);
-	initializeRecombinationRate(1e-3);
+	defineConstant("L", 150000);
 
 	defineConstant("bdmiStart", 0);
 	defineConstant("bdmiEnd", 49999);
+
 	defineConstant("adaptStart", 50000);
-	defineConstant("adaptEnd", L - 1);
+	defineConstant("adaptEnd", 99999);
+
+	defineConstant("neutralStart", 100000);
+	defineConstant("neutralEnd", L - 1);
+
+	defineConstant("mu_bdmi", 1e-8);
+	defineConstant("mu_adapt", 1e-8);
+	defineConstant("mu_neutral", 0.0);
+
+	initializeMutationRate(
+		c(mu_bdmi, mu_adapt, mu_neutral),
+		c(bdmiEnd, adaptEnd, neutralEnd)
+	);
+
+	initializeRecombinationRate(1e-3);
 
 	initializeMutationType("m1", 0.5, "f", 0.0);
 	initializeMutationType("m2", 0.5, "f", 0.0);
@@ -358,22 +369,33 @@ initialize()
 	m5.convertToSubstitution = F;
 	m6.convertToSubstitution = F;
 
+	initializeMutationType("m7", 0.5, "f", 0.0);
+	initializeMutationType("m8", 0.5, "f", 0.0);
+	m7.convertToSubstitution = F;
+	m8.convertToSubstitution = F;
+
 	initializeGenomicElementType("g1", c(m1, m2), c(1.0, 1.0));
 	initializeGenomicElementType("g2", c(m5, m6), c(1.0, 1.0));
+	initializeGenomicElementType("g3", c(m7, m8), c(1.0, 1.0));
 
 	initializeGenomicElement(g1, bdmiStart, bdmiEnd);
 	initializeGenomicElement(g2, adaptStart, adaptEnd);
+	initializeGenomicElement(g3, neutralStart, neutralEnd);
 
 	defineConstant("nAdaptiveLoci", 20);
 	defineConstant("adaptiveStep", asInteger((adaptEnd - adaptStart) / (nAdaptiveLoci - 1)));
 	defineConstant("adaptivePos", asInteger(seq(from=adaptStart, to=adaptEnd, by=adaptiveStep)));
+
+	defineConstant("nNeutralLoci", 20);
+	defineConstant("neutralStep", asInteger((neutralEnd - neutralStart) / (nNeutralLoci - 1)));
+	defineConstant("neutralPos", asInteger(seq(from=neutralStart, to=neutralEnd, by=neutralStep)));
 
 	defineConstant("maxOvules_p1p2", 3);
 	defineConstant("maxOvules_p3", 3);
 	defineConstant("dd_rate0", 0.50);
 	defineConstant("alpha", 0.01);
 
-	defineConstant("hybridizationRate", 0.001);
+	defineConstant("hybridizationRate", 0.01);
 
 	defineConstant("sigma_m", 0.15);
 	defineConstant("epsilon_w", 1e-6);
@@ -385,14 +407,11 @@ initialize()
 
 	defineConstant("sb", 0.30);
 	defineConstant("hb", 0.50);
-
-	defineConstant("pBDMI_p1", 0.01);
-	defineConstant("pBDMI_p2", 0.01);
-	defineConstant("pAdaptive_p1", 0.01);
-	defineConstant("pAdaptive_p2", 0.01);
+	defineConstant("s_adapt", 0.01);
 
 	defineConstant("TRAJFILE", "burnin_secondary_contact_output.txt");
 	defineConstant("DIVFILE", "burnin_divergence_report.txt");
+	defineConstant("TREEFILE", "hybrid_model.trees");
 }
 
 
@@ -401,6 +420,8 @@ initialize()
 	sim.addSubpop("p1", 150);
 	sim.addSubpop("p2", 150);
 	sim.addSubpop("p3", 0);
+
+	seedNeutralAncestryMarkers();
 
 	for (ind in p1.individuals)
 		ind.age = 1;
@@ -411,24 +432,39 @@ initialize()
 	updateLocalDensity();
 
 	writeFile(TRAJFILE,
-		"gen\tphase\tN_total\tN_p1\tN_p2\tN_p3\n",
+		"gen\tphase\tN_total\tN_p1\tN_p2\tN_p3\tmeanAnc_p1\tmeanAnc_p2\tmeanAnc_p3\n",
 		append=F);
 
 	writeFile(DIVFILE,
-		"gen\tN_p1\tN_p2\tmeanPheno_p1\tmeanPheno_p2\tdivPheno\tm5copies_p1\tm6copies_p1\tm5copies_p2\tm6copies_p2\tm1copies_p1\tm2copies_p1\tm1copies_p2\tm2copies_p2\n",
+		"gen\tN_p1\tN_p2\tmeanPheno_p1\tmeanPheno_p2\tdivPheno\tmeanAnc_p1\tmeanAnc_p2\tdivAnc\tm5copies_p1\tm6copies_p1\tm5copies_p2\tm6copies_p2\tm1copies_p1\tm2copies_p1\tm1copies_p2\tm2copies_p2\n",
 		append=F);
 }
 
 
 early()
 {
+	updateLocalDensity();
+
+	for (ind in sim.subpopulations.individuals)
+		ind.fitnessScaling = 1.0;
+
 	if (sim.cycle <= burninLength)
 	{
-		addPrivateBDMIsDuringBurnin();
-		addPrivateAdaptiveAllelesDuringBurnin();
-	}
+		for (ind in p1.individuals)
+		{
+			n5 = countAdaptiveTypeInGenome(ind.genome1, m5) + countAdaptiveTypeInGenome(ind.genome2, m5);
+			ind.fitnessScaling = 1.0 + s_adapt * n5;
+		}
 
-	updateLocalDensity();
+		for (ind in p2.individuals)
+		{
+			n6 = countAdaptiveTypeInGenome(ind.genome1, m6) + countAdaptiveTypeInGenome(ind.genome2, m6);
+			ind.fitnessScaling = 1.0 + s_adapt * n6;
+		}
+
+		for (ind in p3.individuals)
+			ind.fitnessScaling = 1.0;
+	}
 }
 
 
@@ -567,13 +603,20 @@ late()
 	allInds = sim.subpopulations.individuals;
 	phase = (sim.cycle <= burninLength) ? "burnin" else "postBurnin";
 
+	meanAnc_p1 = meanAncestryInPop(p1);
+	meanAnc_p2 = meanAncestryInPop(p2);
+	meanAnc_p3 = meanAncestryInPop(p3);
+
 	writeFile(TRAJFILE,
 		sim.cycle + "\t" +
 		phase + "\t" +
 		size(allInds) + "\t" +
 		p1.individualCount + "\t" +
 		p2.individualCount + "\t" +
-		p3.individualCount + "\n",
+		p3.individualCount + "\t" +
+		meanAnc_p1 + "\t" +
+		meanAnc_p2 + "\t" +
+		meanAnc_p3 + "\n",
 		append=T);
 
 	if (sim.cycle == burninLength)
@@ -592,6 +635,7 @@ late()
 		m2copies_p2 = totalCopiesInPop(p2, m2);
 
 		divPheno = abs(meanPheno_p2 - meanPheno_p1);
+		divAnc = abs(meanAnc_p2 - meanAnc_p1);
 
 		writeFile(DIVFILE,
 			sim.cycle + "\t" +
@@ -600,6 +644,9 @@ late()
 			meanPheno_p1 + "\t" +
 			meanPheno_p2 + "\t" +
 			divPheno + "\t" +
+			meanAnc_p1 + "\t" +
+			meanAnc_p2 + "\t" +
+			divAnc + "\t" +
 			m5copies_p1 + "\t" +
 			m6copies_p1 + "\t" +
 			m5copies_p2 + "\t" +
@@ -615,5 +662,6 @@ late()
 
 endGen late()
 {
+	sim.treeSeqOutput(TREEFILE);
 	sim.simulationFinished();
 }
