@@ -1,21 +1,3 @@
-// ================================================================
-// burn-in_annual.SLIM
-// Annual nonWF hybridization model with:
-//   - two parental populations during burn-in
-//   - quantitative/adaptive trait divergence
-//   - BDMI accumulation
-//   - secondary contact after burn-in
-//   - annual life cycle: adults die after reproduction
-//
-// Run:
-//   slim -s 12345 -t burn-in_annual.SLIM
-// ================================================================
-
-
-// ------------------------------------------------
-// Helper function: calculate quantitative phenotype
-// ------------------------------------------------
-
 function (numeric) getPhenotype(object<Individual> ind)
 {
     g = ind.genomes;
@@ -32,9 +14,6 @@ function (numeric) getPhenotype(object<Individual> ind)
 }
 
 
-// ------------------------------------------------
-// Helper function: BDMI viability multiplier
-// ------------------------------------------------
 
 function (numeric) bdmiMultiplier(object<Individual> ind)
 {
@@ -52,9 +31,7 @@ function (numeric) bdmiMultiplier(object<Individual> ind)
 }
 
 
-// ------------------------------------------------
-// Helper function: annual density-dependent fecundity
-// ------------------------------------------------
+
 
 function (numeric) densityFecundity(integer N)
 {
@@ -62,17 +39,12 @@ function (numeric) densityFecundity(integer N)
 }
 
 
-// ================================================================
-// Initialization
-// ================================================================
 
 initialize()
 {
     initializeSLiMModelType("nonWF");
 
-    // ----------------------------
-    // Core model parameters
-    // ----------------------------
+
 
     if (!exists("K_p1"))
         defineConstant("K_p1", 500);
@@ -126,9 +98,7 @@ initialize()
     if (!exists("traitSigma"))
         defineConstant("traitSigma", 0.30);
 
-    // ----------------------------
-    // Mutation and recombination
-    // ----------------------------
+
 
     initializeMutationRate(mu);
     initializeRecombinationRate(recomb);
@@ -156,9 +126,7 @@ initialize()
 }
 
 
-// ================================================================
-// Create parental populations
-// ================================================================
+
 
 1 early()
 {
@@ -170,9 +138,7 @@ initialize()
 }
 
 
-// ================================================================
-// Burn-in mutation accumulation
-// ================================================================
+
 
 early()
 {
@@ -213,9 +179,6 @@ early()
 }
 
 
-// ================================================================
-// Reproduction
-// ================================================================
 
 reproduction()
 {
@@ -234,18 +197,14 @@ reproduction()
         mate = NULL;
         offspringPop = pop;
 
-        // ----------------------------
-        // Burn-in: only within-pop mating
-        // ----------------------------
+
         if (community.tick <= burnin)
         {
             if (pop.individualCount > 1)
                 mate = pop.sampleIndividuals(1, exclude=individual);
         }
 
-        // ----------------------------
-        // Post-burn-in: allow hybridization
-        // ----------------------------
+
         else
         {
             if (pop == p1)
@@ -295,9 +254,6 @@ reproduction()
 }
 
 
-// ================================================================
-// Viability selection on offspring
-// ================================================================
 
 early()
 {
@@ -337,9 +293,7 @@ early()
 }
 
 
-// ================================================================
-// Annual life cycle
-// ================================================================
+
 
 late()
 {
@@ -353,9 +307,6 @@ late()
 }
 
 
-// ================================================================
-// Logging
-// ================================================================
 
 late()
 {
@@ -388,9 +339,6 @@ late()
 }
 
 
-// ================================================================
-// End simulation
-// ================================================================
 
 endGen late()
 {
