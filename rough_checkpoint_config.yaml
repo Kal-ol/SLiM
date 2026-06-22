@@ -1,0 +1,48 @@
+# Control panel for checkpointed SLiM runs.
+# Change this file when you want more reps, different rates, shorter chunks, etc.
+
+# Paths on CHPC
+base: "$HOME/slim_runs"
+slim_script: "$HOME/slim_runs/scripts/06_17_26_model_checkpoint.SLIM"
+result_name: "muBDMI_checkpoint_test"
+
+# Experiment labels
+bdmi_accumulation: "burnin"       # burnin or continuous
+scenario: "neutral"               # neutral, theta1, theta2, twohab
+
+# Parameter sweep
+mu_bdmi_values:
+  - "1e-4"
+  - "1e-5"
+  - "1e-6"
+  - "1e-7"
+
+total_reps: 5                      # start small; later change to 20, 50, 100
+seed_base: 700000
+
+# Generation/chunking
+burnin: 1500
+end_gen: 3000
+chunk_size: 500                    # one Slurm job runs one 500-gen chunk
+remember_every: 100
+
+# Fixed model parameters
+mu_qtl: "1e-5"
+mu_neutral: "0"
+hyb_rate: "1e-4"
+alpha: "0.005"
+max_ovules: 5
+
+# SLURM resources for EACH chunk job
+slurm_account: "rushworth"
+slurm_partition: "kingspeak"
+slurm_qos: "kingspeak"
+runtime_minutes: 4320              # 72 hr Kingspeak max
+mem_mb: 16000                      # 16 GB
+cpus_per_task: 1
+
+# Snakemake maximum simultaneous jobs
+jobs: 20                           # number of simultaneous jobs to run in Snakemake
+
+# Software module
+slim_module: "slim/4.3"            # slim module to load on CHPC

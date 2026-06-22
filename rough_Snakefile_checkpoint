@@ -1,0 +1,193 @@
+# rough_Snakefile_checkpoint
+# Snakemake controller for checkpointed SLiM simulations.
+# One biological replicate is split into generation chunks.
+
+import os
+
+shell.executable("/bin/bash")
+
+BASE = os.path.expandvars(config["base"])
+SCRIPT = os.path.expandvars(config["slim_script"])
+RESULT_NAME = config["result_name"]
+BDMI_ACCUM = config["bdmi_accumulation"]
+SCENARIO = config["scenario"]
+MU_VALUES = [str(x) for x in config["mu_bdmi_values"]]
+TOTAL_REPS = int(config["total_reps"])
+SEED_BASE = int(config["seed_base"])
+BURNIN = int(config["burnin"])
+ENDGEN = int(config["end_gen"])
+CHUNK = int(config["chunk_size"])
+REMEMBER_EVERY = int(config["remember_every"])
+
+MU_QTL = str(config["mu_qtl"])
+MU_NEUTRAL = str(config["mu_neutral"])
+HYB_RATE = str(config["hyb_rate"])
+ALPHA = str(config["alpha"])
+MAX_OVULES = int(config["max_ovules"])
+
+SLIM_MODULE = config.get("slim_module", "slim/5.0")
+SLURM_ACCOUNT = config["slurm_account"]
+SLURM_PARTITION = config["slurm_partition"]
+SLURM_QOS = config["slurm_qos"]
+RUNTIME = int(config["runtime_minutes"])
+MEM_MB = int(config["mem_mb"])
+CPUS = int(config["cpus_per_task"])
+
+if ENDGEN % CHUNK != 0:
+    raise ValueError("end_gen must be divisible by chunk_size for this rough version.")
+if BURNIN % CHUNK != 0:
+    raise ValueError("burnin should be divisible by chunk_size so the burn-in checkpoint is clean.")
+
+ROOT = f"{BASE}/results/{RESULT_NAME}/{BDMI_ACCUM}/{SCENARIO}"
+
+
+def gen4(g):
+    return f"{int(g):04d}"
+
+
+def seed_for(mu, rep):
+    # Deterministic seed mapping: rate index + replicate number.
+    value_code = MU_VALUES.index(str(mu)) + 1
+    return SEED_BASE + value_code * 1000 + int(rep)
+
+
+def repdir(wc):
+    return f"{ROOT}/muBDMI_{wc.mu}/rep{wc.rep}_seed{wc.seed}"
+
+
+def checkpoint_state(mu, rep, seed, gen):
+    return f"{ROOT}/muBDMI_{mu}/rep{rep}_seed{seed}/checkpoints/checkpoint_gen{gen4(gen)}.bin"
+
+
+def checkpoint_seed(mu, rep, seed, gen):
+    return f"{ROOT}/muBDMI_{mu}/rep{rep}_seed{seed}/checkpoints/checkpoint_gen{gen4(gen)}.seed"
+
+
+def chunk_done(mu, rep, seed, gen):
+    return f"{ROOT}/muBDMI_{mu}/rep{rep}_seed{seed}/status/chunk_gen{gen4(gen)}.done"
+
+
+def final_done_targets():
+    targets = []
+    for mu in MU_VALUES:
+        for rep in range(1, TOTAL_REPS + 1):
+            seed = seed_for(mu, rep)
+            targets.append(f"{ROOT}/muBDMI_{mu}/rep{rep}_seed{seed}/status/finished.done")
+    return targets
+
+
+def prev_state(wc):
+    gen = int(wc.gen)
+    if gen == CHUNK:
+        return []
+    return checkpoint_state(wc.mu, wc.rep, wc.seed, gen - CHUNK)
+
+
+def prev_seed(wc):
+    gen = int(wc.gen)
+    if gen == CHUNK:
+        return []
+    return checkpoint_seed(wc.mu, wc.rep, wc.seed, gen - CHUNK)
+
+
+def prev_done(wc):
+    gen = int(wc.gen)
+    if gen == CHUNK:
+        return []
+    return chunk_done(wc.mu, wc.rep, wc.seed, gen - CHUNK)
+
+
+rule all:
+    input:
+        final_done_targets()
+
+
+rule run_chunk:
+    input:
+        state=prev_state,
+        seed=prev_seed,
+        done=prev_done
+    output:
+        state=f"{ROOT}/muBDMI_{{mu}}/rep{{rep}}_seed{{seed}}/checkpoints/checkpoint_gen{{gen}}.bin",
+        seed=f"{ROOT}/muBDMI_{{mu}}/rep{{rep}}_seed{{seed}}/checkpoints/checkpoint_gen{{gen}}.seed",
+        done=f"{ROOT}/muBDMI_{{mu}}/rep{{rep}}_seed{{seed}}/status/chunk_gen{{gen}}.done"
+    wildcard_constraints:
+        rep="\\d+",
+        seed="\\d+",
+        gen="\\d+"
+    threads: CPUS
+    resources:
+        runtime=RUNTIME,
+        mem_mb=MEM_MB,
+        cpus_per_task=CPUS,
+        slurm_account=SLURM_ACCOUNT,
+        slurm_partition=SLURM_PARTITION,
+        slurm_extra=f"--qos={SLURM_QOS}"
+    params:
+        repdir=repdir,
+        chunk_end=lambda wc: int(wc.gen),
+        chunk_start=lambda wc: max(0, int(wc.gen) - CHUNK),
+        checkpoint_in=lambda wc: "NONE" if int(wc.gen) == CHUNK else checkpoint_state(wc.mu, wc.rep, wc.seed, int(wc.gen) - CHUNK),
+        checkpoint_seed_in=lambda wc: "NONE" if int(wc.gen) == CHUNK else checkpoint_seed(wc.mu, wc.rep, wc.seed, int(wc.gen) - CHUNK),
+        csv=lambda wc: f"{repdir(wc)}/chunk_outputs/per_generation_gen{gen4(max(0, int(wc.gen)-CHUNK))}_to_{gen4(wc.gen)}.csv",
+        console=lambda wc: f"{repdir(wc)}/chunk_outputs/slim_console_gen{gen4(max(0, int(wc.gen)-CHUNK))}_to_{gen4(wc.gen)}.txt"
+    shell:
+        r"""
+        set -euo pipefail
+        module load {SLIM_MODULE}
+
+        mkdir -p "{params.repdir}/checkpoints" "{params.repdir}/chunk_outputs" "{params.repdir}/status"
+        rm -f "{output.state}" "{output.seed}" "{output.done}" "{params.console}"
+
+        cd "{params.repdir}"
+
+        slim \
+          -s "{wildcards.seed}" \
+          -t \
+          -d burnin="{BURNIN}" \
+          -d endGen="{ENDGEN}" \
+          -d chunkStart="{params.chunk_start}" \
+          -d chunkEnd="{params.chunk_end}" \
+          -d envScenario="'{SCENARIO}'" \
+          -d bdmiAccumulation="'{BDMI_ACCUM}'" \
+          -d muQTL="{MU_QTL}" \
+          -d muBDMI="{wildcards.mu}" \
+          -d muNeutral="{MU_NEUTRAL}" \
+          -d hybRate="{HYB_RATE}" \
+          -d alpha="{ALPHA}" \
+          -d maxOvules="{MAX_OVULES}" \
+          -d rememberEvery="{REMEMBER_EVERY}" \
+          -d outputFile="'{params.csv}'" \
+          -d treeSeqFile="'final_gen{ENDGEN}.trees'" \
+          -d burninTreeSeqFile="'burnin_gen{BURNIN}.trees'" \
+          -d checkpointIn="'{params.checkpoint_in}'" \
+          -d checkpointSeedIn="'{params.checkpoint_seed_in}'" \
+          -d checkpointOut="'{output.state}'" \
+          -d checkpointSeedOut="'{output.seed}'" \
+          "{SCRIPT}" > "{params.console}"
+
+        test -s "{output.state}"
+        test -s "{output.seed}"
+        echo "done {wildcards.mu} rep {wildcards.rep} gen {wildcards.gen} at $(date)" > "{output.done}"
+        """
+
+
+rule finish_replicate:
+    input:
+        state=lambda wc: checkpoint_state(wc.mu, wc.rep, wc.seed, ENDGEN),
+        seed=lambda wc: checkpoint_seed(wc.mu, wc.rep, wc.seed, ENDGEN),
+        done=lambda wc: chunk_done(wc.mu, wc.rep, wc.seed, ENDGEN)
+    output:
+        done=f"{ROOT}/muBDMI_{{mu}}/rep{{rep}}_seed{{seed}}/status/finished.done"
+    wildcard_constraints:
+        rep="\\d+",
+        seed="\\d+"
+    params:
+        repdir=repdir
+    shell:
+        r"""
+        set -euo pipefail
+        # The final chunk should have produced the final tree. Fail loudly if it did not.
+        test -s "{params.repdir}/final_gen{ENDGEN}.trees"
+        echo "finished replicate at $(date)" > "{output.done}"
+        """
