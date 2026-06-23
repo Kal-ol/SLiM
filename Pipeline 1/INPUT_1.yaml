@@ -1,1 +1,44 @@
+# Configuration file for pipeline 1 
+
+base: "$"
+result_name: "muBDMI_sweep"
+
+#Model Variant
+active_models:
+ - base
+
+ models: 
+   base: 
+     script: "$"
+
+# Experiment setting
+bdmi_accumulation: "burnin"
+scenario: "neutral"
+mu_bdmi_values:
+  - "1e-4"
+  - "1e-5"
+  - "1e-6"
+  - "1e-7"
+
+# Replicate settings
+total_reps: 100          
+seed_base: 700000
+
+# Generation settings
+burnin: 2000
+end_gen: 4000
+section_size: 500
+remember_every: 100
+
+# Parameters for the SLiM model
+mu_pheno: "1e-5"
+mu_neutral: "0"
+hyb_rate: "0.01"
+alpha: "0.0075"
+max_ovules: 5
+
+controller_script: "$"
+
+snakemake_cores: 1
+
 
