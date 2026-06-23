@@ -73,8 +73,6 @@ mu_index=$(( (TASK_ID - 1) / TOTAL_REPS ))
 REP=$(( (TASK_ID - 1) % TOTAL_REPS + 1 ))
 
 MU_BDMI="${MU_VALUES[$mu_index]}"
-value_code=$(( mu_index + 1 ))
-SEED=$(( SEED_BASE + value_code * 1000 + REP ))
 
 SECTION_END_INT=$(( SECTION_END ))
 SECTION_START=$(( SECTION_END_INT - SECTION ))
@@ -92,7 +90,7 @@ CURR_LABEL="$(gen4 "$SECTION_END_INT")"
 PREV_LABEL="$(gen4 "$SECTION_START")"
 
 ROOT="$BASE/results/$RESULT_NAME/$MODEL_NAME/$BDMI_ACCUM/$SCENARIO"
-OUTDIR="$ROOT/muBDMI_${MU_BDMI}/rep${REP}_seed${SEED}"
+OUTDIR="$ROOT/muBDMI_${MU_BDMI}/rep${REP}"
 
 CHECKDIR="$OUTDIR/checkpoints"
 SECTIONDIR="$OUTDIR/section_outputs"
@@ -148,7 +146,6 @@ Array task: ${SLURM_ARRAY_TASK_ID:-NA}
 Model: $MODEL_NAME
 muBDMI: $MU_BDMI
 Replicate: $REP
-Seed: $SEED
 
 section: $SECTION_START -> $SECTION_END_INT
 Checkpoint in: $CHECKPOINT_IN
@@ -170,7 +167,6 @@ rm -f "$CHECKPOINT_OUT" "$CHECKPOINT_SEED_OUT" "$DONE_OUT" "$CONSOLE_OUT"
 cd "$OUTDIR"
 
 slim \
-  -s "$SEED" \
   -t \
   -d burnin="$BURNIN" \
   -d endGen="$ENDGEN" \
@@ -204,10 +200,10 @@ fi
 
 if (( SECTION_END_INT == ENDGEN )); then
     test -s "$TREESEQ_FINAL"
-    echo "finished model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP seed=$SEED at $(date)" > "$STATUSDIR/finished.done"
+    echo "finished model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP at $(date)" > "$STATUSDIR/finished.done"
 fi
 
-echo "done model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP seed=$SEED section=${PREV_LABEL}_to_${CURR_LABEL} at $(date)" > "$DONE_OUT"
+echo "done model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP section=${PREV_LABEL}_to_${CURR_LABEL} at $(date)" > "$DONE_OUT"
 
 cat <<INFO
 ============================================================
