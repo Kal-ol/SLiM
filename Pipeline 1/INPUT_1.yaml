@@ -4,7 +4,7 @@
 base: "$HOME/slim_runs"
 result_name: "pipeline1_minimal_muBDMI"
 model_name: "annual_base"
-slim_script: "$HOME/slim_runs/scripts/06_22_26_model.SLIM"
+slim_script: "$HOME/slim_runs/scripts/06_22_2026_model.SLIM"
 
 # Model settings
 bdmi_accumulation: "burnin"
