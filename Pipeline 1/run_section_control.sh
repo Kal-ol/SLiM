@@ -7,17 +7,6 @@
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=kallol.mozumdar@usu.edu
 
-# run_next_section_array.sbatch
-# One Slurm array task runs one section for one muBDMI/replicate.
-#
-# This script expects submit_section_rounds.sh to pass:
-#   CONFIG=/path/to/config.yaml
-#   section_END=<generation this section ends at>
-#
-# Array mapping for one model:
-#   task 1..TOTAL_REPS                 -> muBDMI value 1, reps 1..TOTAL_REPS
-#   task TOTAL_REPS+1..2*TOTAL_REPS    -> muBDMI value 2, reps 1..TOTAL_REPS
-#   etc.
 
 set -euo pipefail
 
@@ -36,7 +25,6 @@ if [[ ! -f "$CONFIG" ]]; then
     exit 1
 fi
 
-# Simple config reader for key: value lines.
 cfg() {
     local key="$1"
     local val
