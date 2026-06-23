@@ -15,8 +15,8 @@ if [[ -z "${CONFIG:-}" ]]; then
     exit 1
 fi
 
-if [[ -z "${section_END:-}" ]]; then
-    echo "ERROR: section_END environment variable not set."
+if [[ -z "${SECTION_END:-}" ]]; then
+    echo "ERROR: SECTION_END environment variable not set."
     exit 1
 fi
 
@@ -50,7 +50,7 @@ SEED_BASE="$(cfg seed_base)"
 
 BURNIN="$(cfg burnin)"
 ENDGEN="$(cfg end_gen)"
-section="$(cfg section_size)"
+SECTION="$(cfg section_size)"
 REMEMBER_EVERY="$(cfg remember_every)"
 
 MU_pheno="$(cfg mu_pheno)"
@@ -77,10 +77,10 @@ MU_BDMI="${MU_VALUES[$mu_index]}"
 value_code=$(( mu_index + 1 ))
 SEED=$(( SEED_BASE + value_code * 1000 + REP ))
 
-section_END_INT=$(( section_END ))
-section_START=$(( section_END_INT - section ))
+SECTION_END_INT=$(( SECTION_END ))
+SECTION_START=$(( SECTION_END_INT - SECTION ))
 
-if (( section_START < 0 )); then
+if (( SECTION_START < 0 )); then
     echo "ERROR: section start < 0. Check section_size and section_END."
     exit 1
 fi
@@ -89,17 +89,17 @@ gen4() {
     printf "%04d" "$1"
 }
 
-CURR_LABEL="$(gen4 "$section_END_INT")"
-PREV_LABEL="$(gen4 "$section_START")"
+CURR_LABEL="$(gen4 "$SECTION_END_INT")"
+PREV_LABEL="$(gen4 "$SECTION_START")"
 
 ROOT="$BASE/results/$RESULT_NAME/$MODEL_NAME/$BDMI_ACCUM/$SCENARIO"
 OUTDIR="$ROOT/muBDMI_${MU_BDMI}/rep${REP}_seed${SEED}"
 
 CHECKDIR="$OUTDIR/checkpoints"
-sectionDIR="$OUTDIR/section_outputs"
+SECTIONDIR="$OUTDIR/section_outputs"
 STATUSDIR="$OUTDIR/status"
 
-mkdir -p "$CHECKDIR" "$sectionDIR" "$STATUSDIR" "$BASE/logs"
+mkdir -p "$CHECKDIR" "$SECTIONDIR" "$STATUSDIR" "$BASE/logs"
 
 CHECKPOINT_OUT="$CHECKDIR/checkpoint_gen${CURR_LABEL}.bin"
 CHECKPOINT_SEED_OUT="$CHECKDIR/checkpoint_gen${CURR_LABEL}.seed"
@@ -111,7 +111,7 @@ if [[ -s "$DONE_OUT" && -s "$CHECKPOINT_OUT" && -s "$CHECKPOINT_SEED_OUT" ]]; th
     exit 0
 fi
 
-if (( section_START == 0 )); then
+if (( SECTION_START == 0 )); then
     CHECKPOINT_IN="NONE"
     CHECKPOINT_SEED_IN="NONE"
 else
@@ -127,8 +127,8 @@ else
     fi
 fi
 
-CSV_OUT="$sectionDIR/per_generation_gen${PREV_LABEL}_to_${CURR_LABEL}.csv"
-CONSOLE_OUT="$sectionDIR/slim_console_gen${PREV_LABEL}_to_${CURR_LABEL}.txt"
+CSV_OUT="$SECTIONDIR/per_generation_gen${PREV_LABEL}_to_${CURR_LABEL}.csv"
+CONSOLE_OUT="$SECTIONDIR/slim_console_gen${PREV_LABEL}_to_${CURR_LABEL}.txt"
 
 TREESEQ_FINAL="final_gen${ENDGEN}.trees"
 TREESEQ_BURNIN="burnin_gen${BURNIN}.trees"
@@ -151,7 +151,7 @@ muBDMI: $MU_BDMI
 Replicate: $REP
 Seed: $SEED
 
-section: $section_START -> $section_END_INT
+section: $SECTION_START -> $SECTION_END_INT
 Checkpoint in: $CHECKPOINT_IN
 Seed in: $CHECKPOINT_SEED_IN
 Checkpoint out: $CHECKPOINT_OUT
@@ -175,8 +175,8 @@ slim \
   -t \
   -d burnin="$BURNIN" \
   -d endGen="$ENDGEN" \
-  -d sectionStart="$section_START" \
-  -d sectionEnd="$section_END_INT" \
+  -d sectionStart="$SECTION_START" \
+  -d sectionEnd="$SECTION_END_INT" \
   -d envScenario="'${SCENARIO}'" \
   -d bdmiAccumulation="'${BDMI_ACCUM}'" \
   -d mupheno="$MU_pheno" \
@@ -199,11 +199,11 @@ slim \
 test -s "$CHECKPOINT_OUT"
 test -s "$CHECKPOINT_SEED_OUT"
 
-if (( section_END_INT == BURNIN )); then
+if (( SECTION_END_INT == BURNIN )); then
     test -s "$TREESEQ_BURNIN"
 fi
 
-if (( section_END_INT == ENDGEN )); then
+if (( SECTION_END_INT == ENDGEN )); then
     test -s "$TREESEQ_FINAL"
     echo "finished model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP seed=$SEED at $(date)" > "$STATUSDIR/finished.done"
 fi
@@ -212,7 +212,7 @@ echo "done model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP seed=$SEED section=${PREV_
 
 cat <<INFO
 ============================================================
-Finished section: $section_START -> $section_END_INT
+Finished section: $SECTION_START -> $SECTION_END_INT
 Finished: $(date)
 Checkpoint written:
   $CHECKPOINT_OUT
