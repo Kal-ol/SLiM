@@ -50,7 +50,7 @@ if (( TOTAL_TASKS < 1 )); then
     exit 1
 fi
 
-if (( ENDGEN % section != 0 )); then
+if (( ENDGEN % SECTION != 0 )); then
     echo "ERROR: end_gen ($ENDGEN) must be divisible by section_size ($SECTION)."
     exit 1
 fi
@@ -70,7 +70,7 @@ echo "============================================================"
 
 prev_jobid=""
 
-for (( section_end=SECTION; section_end<=ENDGEN; section_end+=section )); do
+for (( section_end=SECTION; section_end<=ENDGEN; section_end+=SECTION )); do
     dep_arg=()
     if [[ -n "$prev_jobid" ]]; then
         dep_arg=(--dependency=afterok:$prev_jobid)
