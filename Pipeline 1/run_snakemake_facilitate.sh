@@ -11,7 +11,7 @@ fi
 
 CONFIG_ABS="$(readlink -f "$CONFIG")"
 THIS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ARRAY_SCRIPT="$THIS_DIR/run_next_section_array.sbatch"
+ARRAY_SCRIPT="$THIS_DIR/run_section_control.sh"
 
 if [[ ! -f "$ARRAY_SCRIPT" ]]; then
     echo "ERROR: cannot find array script: $ARRAY_SCRIPT"
@@ -32,7 +32,7 @@ read -r -a MU_VALUES <<< "$MU_VALUES_STR"
 
 TOTAL_REPS="$(cfg total_reps)"
 ENDGEN="$(cfg end_gen)"
-section="$(cfg section_size)"
+SECTION="$(cfg section_size)"
 MAX_PARALLEL="$(cfg max_parallel)"
 
 SLURM_ACCOUNT="$(cfg slurm_account)"
@@ -51,7 +51,7 @@ if (( TOTAL_TASKS < 1 )); then
 fi
 
 if (( ENDGEN % section != 0 )); then
-    echo "ERROR: end_gen ($ENDGEN) must be divisible by section_size ($section)."
+    echo "ERROR: end_gen ($ENDGEN) must be divisible by section_size ($SECTION)."
     exit 1
 fi
 
@@ -62,7 +62,7 @@ echo "Array script:  $ARRAY_SCRIPT"
 echo "muBDMI values: ${MU_VALUES[*]}"
 echo "Reps/rate:     $TOTAL_REPS"
 echo "Total tasks:   $TOTAL_TASKS"
-echo "section size:    $section generations"
+echo "section size:    $SECTION generations"
 echo "End gen:       $ENDGEN"
 echo "Max parallel:  $MAX_PARALLEL"
 echo "Slurm:         account=$SLURM_ACCOUNT partition=$SLURM_PARTITION qos=$SLURM_QOS time=$TIME mem=$MEM cpus=$CPUS"
@@ -70,7 +70,7 @@ echo "============================================================"
 
 prev_jobid=""
 
-for (( section_end=section; section_end<=ENDGEN; section_end+=section )); do
+for (( section_end=SECTION; section_end<=ENDGEN; section_end+=section )); do
     dep_arg=()
     if [[ -n "$prev_jobid" ]]; then
         dep_arg=(--dependency=afterok:$prev_jobid)
@@ -93,7 +93,7 @@ for (( section_end=section; section_end<=ENDGEN; section_end+=section )); do
             --cpus-per-task="$CPUS" \
             --mem="$MEM" \
             --array="1-${TOTAL_TASKS}%${MAX_PARALLEL}" \
-            --export=ALL,CONFIG="$CONFIG_ABS",section_END="$section_end" \
+            --export=ALL,CONFIG="$CONFIG_ABS",SECTION_END="$section_end" \
             "$ARRAY_SCRIPT"
     )
 
