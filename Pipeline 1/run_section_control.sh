@@ -46,7 +46,6 @@ MU_VALUES_STR="$(cfg mu_bdmi_values)"
 read -r -a MU_VALUES <<< "$MU_VALUES_STR"
 
 TOTAL_REPS="$(cfg total_reps)"
-SEED_BASE="$(cfg seed_base)"
 
 BURNIN="$(cfg burnin)"
 ENDGEN="$(cfg end_gen)"
