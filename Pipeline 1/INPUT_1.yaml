@@ -1,44 +1,48 @@
 # Configuration file for pipeline 1 
 
-base: "$"
-result_name: "muBDMI_sweep"
+# Paths
+base: "$HOME/slim_runs"
+result_name: "pipeline1_minimal_muBDMI"
+model_name: "annual_base"
+slim_script: "$HOME/slim_runs/scripts/06_22_26_model.SLIM"
 
-#Model Variant
-active_models:
- - base
-
- models: 
-   base: 
-     script: "$"
-
-# Experiment setting
+# Model settings
 bdmi_accumulation: "burnin"
 scenario: "neutral"
-mu_bdmi_values:
+
+# Sweep settings
+mu_bdmi_values: 
   - "1e-4"
   - "1e-5"
   - "1e-6"
   - "1e-7"
+total_reps: 100
 
-# Replicate settings
-total_reps: 100          
-seed_base: 700000
-
-# Generation settings
-burnin: 2000
-end_gen: 4000
-section_size: 500
+# Generation/chunk settings
+burnin: 1500
+end_gen: 3000
+chunk_size: 500
 remember_every: 100
 
-# Parameters for the SLiM model
-mu_pheno: "1e-5"
+# Mutation / ecological settings passed into SLiM
+mu_qtl: "1e-5"
 mu_neutral: "0"
 hyb_rate: "0.01"
-alpha: "0.0075"
-max_ovules: 5
+alpha: "0.01"
+max_ovules: 3
 
-controller_script: "$"
+# SLiM module
+# Change this to slim/4.3 if needed, but full objectTags checkpointing may require SLiM 5.x.
+slim_module: "slim/4.3"
 
-snakemake_cores: 1
+# Slurm settings
+slurm_account: "rushworth"
+slurm_partition: "kingspeak"
+slurm_qos: "kingspeak"
+time: "72:00:00"
+mem: "16G"
+cpus_per_task: 1
 
-
+# Parallelism
+# This becomes --array=1-N%max_parallel
+max_parallel: 40
