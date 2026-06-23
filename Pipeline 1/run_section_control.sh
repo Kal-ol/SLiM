@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=slim_chunk
+#SBATCH --job-name=slim_section
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --output=/uufs/chpc.utah.edu/common/home/u6050972/slim_runs/logs/%x_%A_%a.out
@@ -7,12 +7,12 @@
 #SBATCH --mail-type=FAIL
 #SBATCH --mail-user=kallol.mozumdar@usu.edu
 
-# run_next_chunk_array.sbatch
-# One Slurm array task runs one chunk for one muBDMI/replicate.
+# run_next_section_array.sbatch
+# One Slurm array task runs one section for one muBDMI/replicate.
 #
-# This script expects submit_chunk_rounds.sh to pass:
+# This script expects submit_section_rounds.sh to pass:
 #   CONFIG=/path/to/config.yaml
-#   CHUNK_END=<generation this chunk ends at>
+#   section_END=<generation this section ends at>
 #
 # Array mapping for one model:
 #   task 1..TOTAL_REPS                 -> muBDMI value 1, reps 1..TOTAL_REPS
@@ -26,8 +26,8 @@ if [[ -z "${CONFIG:-}" ]]; then
     exit 1
 fi
 
-if [[ -z "${CHUNK_END:-}" ]]; then
-    echo "ERROR: CHUNK_END environment variable not set."
+if [[ -z "${section_END:-}" ]]; then
+    echo "ERROR: section_END environment variable not set."
     exit 1
 fi
 
@@ -62,10 +62,10 @@ SEED_BASE="$(cfg seed_base)"
 
 BURNIN="$(cfg burnin)"
 ENDGEN="$(cfg end_gen)"
-CHUNK="$(cfg chunk_size)"
+section="$(cfg section_size)"
 REMEMBER_EVERY="$(cfg remember_every)"
 
-MU_QTL="$(cfg mu_qtl)"
+MU_pheno="$(cfg mu_pheno)"
 MU_NEUTRAL="$(cfg mu_neutral)"
 HYB_RATE="$(cfg hyb_rate)"
 ALPHA="$(cfg alpha)"
@@ -89,11 +89,11 @@ MU_BDMI="${MU_VALUES[$mu_index]}"
 value_code=$(( mu_index + 1 ))
 SEED=$(( SEED_BASE + value_code * 1000 + REP ))
 
-CHUNK_END_INT=$(( CHUNK_END ))
-CHUNK_START=$(( CHUNK_END_INT - CHUNK ))
+section_END_INT=$(( section_END ))
+section_START=$(( section_END_INT - section ))
 
-if (( CHUNK_START < 0 )); then
-    echo "ERROR: chunk start < 0. Check chunk_size and CHUNK_END."
+if (( section_START < 0 )); then
+    echo "ERROR: section start < 0. Check section_size and section_END."
     exit 1
 fi
 
@@ -101,29 +101,29 @@ gen4() {
     printf "%04d" "$1"
 }
 
-CURR_LABEL="$(gen4 "$CHUNK_END_INT")"
-PREV_LABEL="$(gen4 "$CHUNK_START")"
+CURR_LABEL="$(gen4 "$section_END_INT")"
+PREV_LABEL="$(gen4 "$section_START")"
 
 ROOT="$BASE/results/$RESULT_NAME/$MODEL_NAME/$BDMI_ACCUM/$SCENARIO"
 OUTDIR="$ROOT/muBDMI_${MU_BDMI}/rep${REP}_seed${SEED}"
 
 CHECKDIR="$OUTDIR/checkpoints"
-CHUNKDIR="$OUTDIR/chunk_outputs"
+sectionDIR="$OUTDIR/section_outputs"
 STATUSDIR="$OUTDIR/status"
 
-mkdir -p "$CHECKDIR" "$CHUNKDIR" "$STATUSDIR" "$BASE/logs"
+mkdir -p "$CHECKDIR" "$sectionDIR" "$STATUSDIR" "$BASE/logs"
 
 CHECKPOINT_OUT="$CHECKDIR/checkpoint_gen${CURR_LABEL}.bin"
 CHECKPOINT_SEED_OUT="$CHECKDIR/checkpoint_gen${CURR_LABEL}.seed"
-DONE_OUT="$STATUSDIR/chunk_gen${CURR_LABEL}.done"
+DONE_OUT="$STATUSDIR/section_gen${CURR_LABEL}.done"
 
 if [[ -s "$DONE_OUT" && -s "$CHECKPOINT_OUT" && -s "$CHECKPOINT_SEED_OUT" ]]; then
-    echo "Chunk already complete; skipping:"
+    echo "section already complete; skipping:"
     echo "  $DONE_OUT"
     exit 0
 fi
 
-if (( CHUNK_START == 0 )); then
+if (( section_START == 0 )); then
     CHECKPOINT_IN="NONE"
     CHECKPOINT_SEED_IN="NONE"
 else
@@ -131,7 +131,7 @@ else
     CHECKPOINT_SEED_IN="$CHECKDIR/checkpoint_gen${PREV_LABEL}.seed"
 
     if [[ ! -s "$CHECKPOINT_IN" || ! -s "$CHECKPOINT_SEED_IN" ]]; then
-        echo "ERROR: previous checkpoint missing for chunk ${PREV_LABEL} -> ${CURR_LABEL}"
+        echo "ERROR: previous checkpoint missing for section ${PREV_LABEL} -> ${CURR_LABEL}"
         echo "Expected:"
         echo "  $CHECKPOINT_IN"
         echo "  $CHECKPOINT_SEED_IN"
@@ -139,8 +139,8 @@ else
     fi
 fi
 
-CSV_OUT="$CHUNKDIR/per_generation_gen${PREV_LABEL}_to_${CURR_LABEL}.csv"
-CONSOLE_OUT="$CHUNKDIR/slim_console_gen${PREV_LABEL}_to_${CURR_LABEL}.txt"
+CSV_OUT="$sectionDIR/per_generation_gen${PREV_LABEL}_to_${CURR_LABEL}.csv"
+CONSOLE_OUT="$sectionDIR/slim_console_gen${PREV_LABEL}_to_${CURR_LABEL}.txt"
 
 TREESEQ_FINAL="final_gen${ENDGEN}.trees"
 TREESEQ_BURNIN="burnin_gen${BURNIN}.trees"
@@ -152,7 +152,7 @@ fi
 
 cat <<INFO
 ============================================================
-SLiM checkpoint chunk
+SLiM checkpoint section
 Config: $CONFIG
 Host: $(hostname)
 Job ID: ${SLURM_JOB_ID:-NA}
@@ -163,7 +163,7 @@ muBDMI: $MU_BDMI
 Replicate: $REP
 Seed: $SEED
 
-Chunk: $CHUNK_START -> $CHUNK_END_INT
+section: $section_START -> $section_END_INT
 Checkpoint in: $CHECKPOINT_IN
 Seed in: $CHECKPOINT_SEED_IN
 Checkpoint out: $CHECKPOINT_OUT
@@ -187,11 +187,11 @@ slim \
   -t \
   -d burnin="$BURNIN" \
   -d endGen="$ENDGEN" \
-  -d chunkStart="$CHUNK_START" \
-  -d chunkEnd="$CHUNK_END_INT" \
+  -d sectionStart="$section_START" \
+  -d sectionEnd="$section_END_INT" \
   -d envScenario="'${SCENARIO}'" \
   -d bdmiAccumulation="'${BDMI_ACCUM}'" \
-  -d muQTL="$MU_QTL" \
+  -d mupheno="$MU_pheno" \
   -d muBDMI="$MU_BDMI" \
   -d muNeutral="$MU_NEUTRAL" \
   -d hybRate="$HYB_RATE" \
@@ -211,20 +211,20 @@ slim \
 test -s "$CHECKPOINT_OUT"
 test -s "$CHECKPOINT_SEED_OUT"
 
-if (( CHUNK_END_INT == BURNIN )); then
+if (( section_END_INT == BURNIN )); then
     test -s "$TREESEQ_BURNIN"
 fi
 
-if (( CHUNK_END_INT == ENDGEN )); then
+if (( section_END_INT == ENDGEN )); then
     test -s "$TREESEQ_FINAL"
     echo "finished model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP seed=$SEED at $(date)" > "$STATUSDIR/finished.done"
 fi
 
-echo "done model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP seed=$SEED chunk=${PREV_LABEL}_to_${CURR_LABEL} at $(date)" > "$DONE_OUT"
+echo "done model=$MODEL_NAME muBDMI=$MU_BDMI rep=$REP seed=$SEED section=${PREV_LABEL}_to_${CURR_LABEL} at $(date)" > "$DONE_OUT"
 
 cat <<INFO
 ============================================================
-Finished chunk: $CHUNK_START -> $CHUNK_END_INT
+Finished section: $section_START -> $section_END_INT
 Finished: $(date)
 Checkpoint written:
   $CHECKPOINT_OUT
