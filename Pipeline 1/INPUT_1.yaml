@@ -14,10 +14,10 @@ scenario: "neutral"
 mu_bdmi_values: "1e-4 1e-5 1e-6 1e-7"
 total_reps: 100
 
-# Generation/chunk settings
+# Generation/section settings
 burnin: 2000
 end_gen: 4000
-chunk_size: 500
+section_size: 500
 remember_every: 100
 
 # Mutation / ecological settings passed into SLiM
