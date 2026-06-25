@@ -4,9 +4,8 @@ set -euo pipefail
 
 CONFIG="${1:-config_sim_pipeline1_minimal.yaml}"
 
-if [[ ! -f "$CONFIG" ]]; then
-    echo "ERROR: config file not found: $CONFIG"
-    exit 1
+if [[ -n "$prev_jobid" ]]; then
+    dep_arg=(--dependency=aftercorr:$prev_jobid)
 fi
 
 CONFIG_ABS="$(readlink -f "$CONFIG")"
