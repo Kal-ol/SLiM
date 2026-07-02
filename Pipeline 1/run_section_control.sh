@@ -10,13 +10,18 @@
 
 set -euo pipefail
 
-if [[ -z "${CONFIG:-}" ]]; then
-    echo "ERROR: CONFIG environment variable not set."
+CONFIG="${CONFIG:-${1:-INPUT_1.yaml}}"
+SECTION_END="${SECTION_END:-${2:-}}"
+
+if [[ -z "$CONFIG" ]]; then
+    echo "ERROR: CONFIG not set and no config file argument provided."
+    echo "Usage: sbatch --array=1-1 run_section_control.sh INPUT_1.yaml 500"
     exit 1
 fi
 
-if [[ -z "${SECTION_END:-}" ]]; then
-    echo "ERROR: SECTION_END environment variable not set."
+if [[ -z "$SECTION_END" ]]; then
+    echo "ERROR: SECTION_END not set and no section-end argument provided."
+    echo "Usage: sbatch --array=1-1 run_section_control.sh INPUT_1.yaml 500"
     exit 1
 fi
 
@@ -60,7 +65,7 @@ MAX_OVULES="$(cfg max_ovules)"
 
 SLIM_MODULE="$(cfg slim_module)"
 
-TASK_ID="${SLURM_ARRAY_TASK_ID}"
+TASK_ID="${SLURM_ARRAY_TASK_ID:-${TASK_ID:-1}}"
 N_MU_VALUES="${#MU_VALUES[@]}"
 TOTAL_TASKS=$(( N_MU_VALUES * TOTAL_REPS ))
 
@@ -162,7 +167,7 @@ INFO
 
 module load "$SLIM_MODULE"
 
-rm -f "$CHECKPOINT_OUT" "$CHECKPOINT_SEED_OUT" "$DONE_OUT" "$CONSOLE_OUT"
+rm -f "$CHECKPOINT_OUT" "$CHECKPOINT_SEED_OUT" "$DONE_OUT" "$CONSOLE_OUT" "$CSV_OUT"
 
 cd "$OUTDIR"
 
@@ -191,8 +196,21 @@ slim \
   "$SCRIPT" \
   > "$CONSOLE_OUT"
 
-test -s "$CHECKPOINT_OUT"
-test -s "$CHECKPOINT_SEED_OUT"
+if [[ -s "$CHECKPOINT_OUT" ]]; then
+    echo "checkpoint_bin=1"
+else
+    echo "checkpoint_bin=0"
+    tail -n 40 "$CONSOLE_OUT" || true
+    exit 1
+fi
+
+if [[ -s "$CHECKPOINT_SEED_OUT" ]]; then
+    echo "checkpoint_seed=1"
+else
+    echo "checkpoint_seed=0"
+    tail -n 40 "$CONSOLE_OUT" || true
+    exit 1
+fi
 
 if (( SECTION_END_INT == BURNIN )); then
     test -s "$TREESEQ_BURNIN"
