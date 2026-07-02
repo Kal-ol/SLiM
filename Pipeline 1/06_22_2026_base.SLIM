@@ -524,10 +524,7 @@ initialize()
 // ------------------------------------------------------------
 // Mutation callbacks
 // ------------------------------------------------------------
-// These callbacks keep the model in a strict SLiM mutation-rate framework
-// while preserving the biological meaning of parent-specific BDMIs.
 
-// pheno mutations can arise anywhere in the pheno region.
 // Assign each new pheno mutation a 2D phenotypic effect.
 mutation(m3)
 {
@@ -580,9 +577,7 @@ mutation(m2)
 }
 
 
-// Neutral mutations are accepted when addNeutralForward is enabled.
-// If addNeutralForward=F, muNeutralUsed is already 0, so this should rarely be called.
-mutation(m7)
+
 {
     return addNeutralForward;
 }
@@ -631,7 +626,7 @@ mutation(m7)
 }
 
 
-early()
+1:5000 early()
 {
     inds = sim.subpopulations.individuals;
 
@@ -651,7 +646,7 @@ early()
 
 
 
-reproduction()
+1:5000 reproduction()
 {
     pop = individual.subpopulation;
 
@@ -736,7 +731,7 @@ reproduction()
 
 
 
-late()
+1:5000 late()
 {
     // Adults die after reproduction.
     // Newborns remain and become the next generation.
@@ -748,7 +743,7 @@ late()
 }
 
 
-late()
+1:5000 late()
 {
     meanP1 = meanPhenotype(p1.individuals);
     meanP2 = meanPhenotype(p2.individuals);
@@ -778,11 +773,9 @@ late()
 
 
 
-late()
+1:5000 late()
 {
     // Remember all living individuals at ticks:
-    //   1, 100, 200, ..., endGen
-    // The final tree sequence will contain these remembered time points.
     shouldRemember = (community.tick == 1) |
                      ((community.tick % rememberEvery) == 0) |
                      (community.tick == endGen);
@@ -805,8 +798,6 @@ late()
     }
 
     // Write one burn-in tree sequence exactly at the end of burn-in.
-    // For burnin=2000 and rememberEvery=100, this contains samples from
-    // ticks 1, 100, 200, ..., 2000.
     if (community.tick == burnin)
     {
         sim.treeSeqOutput(burninTreeSeqFile);
@@ -815,17 +806,14 @@ late()
 }
 
 
-late()
+1:5000 late()
 {
-    // Stop cleanly at the end of each section, save a full checkpoint,
-    // and only write the final tree sequence when sectionEnd == endGen.
+    // save a full checkpoint at the edn of each section
     if (community.tick == sectionEnd)
     {
         if (community.tick == endGen)
         {
             // Write the final tree sequence at endGen.
-            // For endGen=5000 and rememberEvery=100, this contains samples from
-            // ticks 1, 100, 200, ..., 5000.
             sim.treeSeqOutput(treeSeqFile);
 
             catn("Final counts: N_p1=" + p1.individualCount +
@@ -835,16 +823,12 @@ late()
             catn("Tree sequence saved to: " + treeSeqFile);
         }
 
-        // Save a new random seed immediately before the full checkpoint.
-        // The next section reads this seed and calls setSeed() after loading
-        // the checkpoint, so restart behavior continues from this section.
+        // Save a new random seed immediately
         newSeed = rdunif(1, 1, 1000000000);
         setSeed(newSeed);
 
-        // objectTags=T is important because phenotype mutations store deltaZ
-        // with mut.setValue("deltaZ", deltaZ). This requires a SLiM version
-        // whose outputFull()/readFromPopulationFile() preserves object tags.
-        sim.outputFull(checkpointOut, binary=T, objectTags=T);
+     
+        sim.outputFull(checkpointOut, binary=T);
         writeFile(checkpointSeedOut, asString(newSeed), append=F);
 
         catn("Checkpoint saved to: " + checkpointOut);
