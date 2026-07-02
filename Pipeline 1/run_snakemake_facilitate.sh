@@ -2,10 +2,11 @@
 
 set -euo pipefail
 
-CONFIG="${1:-config_sim_pipeline1_minimal.yaml}"
+CONFIG="${1:-INPUT_1.yaml}"
 
-if [[ -n "$prev_jobid" ]]; then
-    dep_arg=(--dependency=aftercorr:$prev_jobid)
+if [[ ! -f "$CONFIG" ]]; then
+    echo "ERROR: config file not found: $CONFIG"
+    exit 1
 fi
 
 CONFIG_ABS="$(readlink -f "$CONFIG")"
@@ -72,7 +73,7 @@ prev_jobid=""
 for (( section_end=SECTION; section_end<=ENDGEN; section_end+=SECTION )); do
     dep_arg=()
     if [[ -n "$prev_jobid" ]]; then
-        dep_arg=(--dependency=afterok:$prev_jobid)
+        dep_arg=(--dependency=aftercorr:$prev_jobid)
     fi
 
     qos_arg=()
