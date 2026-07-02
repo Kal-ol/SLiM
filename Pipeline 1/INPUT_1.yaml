@@ -35,7 +35,7 @@ slurm_account: "rushworth"
 slurm_partition: "kingspeak"
 slurm_qos: "kingspeak"
 time: "72:00:00"
-mem: "16G"
+mem: "8G"
 cpus_per_task: 1
 
 # Parallelism
