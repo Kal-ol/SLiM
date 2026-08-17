@@ -2,22 +2,21 @@
 
 # Paths
 base: "$HOME/slim_runs"
-result_name: "pipeline1_minimal_muBDMI"
+result_name: "pipeline1_full_muBDMI_1e-4_50reps"
 model_name: "annual_base"
-slim_script: "$HOME/slim_runs/scripts/06_22_2026_model.SLIM"
+slim_script: "$HOME/slim_runs/scripts/06_22_2026_model_v4_1.SLIM"
 
 # Model settings
 bdmi_accumulation: "burnin"
 scenario: "neutral"
 
 # Sweep settings
-mu_bdmi_values: "1e-4 1e-5 1e-6 1e-7"
-total_reps: 100
+mu_bdmi_values: "1e-4"
+total_reps: 50
 
 # Generation/section settings
 burnin: 2000
-end_gen: 4000
-section_size: 500
+end_gen: 5000
 remember_every: 100
 
 # Mutation / ecological settings passed into SLiM
@@ -31,9 +30,9 @@ max_ovules: 5
 slim_module: "slim/4.3"
 
 # Slurm settings
-slurm_account: "rushworth"
-slurm_partition: "kingspeak"
-slurm_qos: "kingspeak"
+slurm_account: "usuplants-np"
+slurm_partition: "usuplants-np"
+slurm_qos: "NONE"
 time: "72:00:00"
 mem: "8G"
 cpus_per_task: 1
