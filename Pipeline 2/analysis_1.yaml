@@ -1,0 +1,56 @@
+# EDIT THIS FILE FOR EACH ANALYSIS.
+
+results_directory: "$HOME/slim_runs/results/pipeline1_minimal_hybrate_rep50/annual_base/burnin/neutral"
+output_directory: "$HOME/slim_runs/analysis/pipeline2_hybrate_gen4000"
+
+parameter:
+  name: "hybRate"
+  values:
+    - "0.001"
+    - "0.01"
+    - "0.2"
+    - "0.5"
+
+replicates: 50
+
+generations:
+  first: 1
+  target: 4000
+
+# Either one uninterrupted CSV or any number/size of section CSVs is accepted.
+files:
+  full_csv: "per_generation.csv"
+  section_csv_pattern: "section_outputs/per_generation_gen*_to_*.csv"
+  finished_marker: "status/finished.done"
+  burnin_tree: "burnin_gen2000.trees"
+  final_tree: "final_gen4000.trees"
+
+population_summary:
+  eligibility: "csv_complete"
+
+tree_analysis:
+  enabled: true
+  populations:
+    p1: 1
+    p2: 2
+    p3: 3
+  final_sample_time: 0
+
+  neutral_overlay:
+    enabled: true
+    rate: 1.0e-8
+    keep_existing: false
+    seed_base: 810000
+
+  recapitation:
+    enabled: false
+    ancestral_Ne: 150
+    recombination_rate: 1.0e-8
+    seed_base: 820000
+
+  # Zero-based, half-open coordinates [start, end).
+  regions:
+    whole_genome: [0, 100000]
+    phenotype: [0, 33333]
+    bdmi: [33333, 66666]
+    neutral: [66666, 100000]
