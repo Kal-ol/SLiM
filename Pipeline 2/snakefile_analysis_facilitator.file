@@ -1,0 +1,173 @@
+import os
+import shlex
+from pathlib import Path
+
+configfile: "ANALYSIS_2.yaml"
+
+
+def expanded_path(value):
+    return Path(os.path.expandvars(os.path.expanduser(str(value)))).resolve()
+
+
+RESULTS = expanded_path(config["results_directory"])
+OUTPUT = expanded_path(config["output_directory"])
+PARAMETER = str(config["parameter"]["name"])
+VALUES = [str(value) for value in config["parameter"]["values"]]
+REPLICATES = list(range(1, int(config["replicates"]) + 1))
+FIRST_GENERATION = int(config["generations"]["first"])
+TARGET_GENERATION = int(config["generations"]["target"])
+FILES = config["files"]
+TREE_CONFIG = config["tree_analysis"]
+SCRIPTS = Path(workflow.basedir) / "analysis_scripts"
+
+MERGED = str(OUTPUT / "merged" / (PARAMETER + "_{value}") / "rep{rep}.csv")
+QC = str(OUTPUT / "qc" / (PARAMETER + "_{value}") / "rep{rep}.json")
+TREE_RESULT = str(OUTPUT / "trees" / "per_replicate" / (PARAMETER + "_{value}") / "rep{rep}.csv")
+
+ALL_MERGED = expand(MERGED, value=VALUES, rep=REPLICATES)
+ALL_QC = expand(QC, value=VALUES, rep=REPLICATES)
+ALL_TREE_RESULTS = expand(TREE_RESULT, value=VALUES, rep=REPLICATES)
+
+AUDIT = str(OUTPUT / "audit" / "replicate_status.csv")
+AUDIT_SUMMARY = str(OUTPUT / "audit" / "status_summary.csv")
+POP_BY_REP = str(OUTPUT / "population" / f"endpoint_gen{TARGET_GENERATION}_by_replicate.csv")
+POP_ENDPOINT = str(OUTPUT / "population" / f"endpoint_gen{TARGET_GENERATION}_summary.csv")
+POP_TRAJECTORY = str(OUTPUT / "population" / "trajectory_summary.csv")
+TREE_BY_REP = str(OUTPUT / "trees" / "tree_statistics_by_replicate.csv")
+TREE_SUMMARY = str(OUTPUT / "trees" / "tree_statistics_summary.csv")
+
+FINAL_OUTPUTS = [AUDIT, AUDIT_SUMMARY, POP_BY_REP, POP_ENDPOINT, POP_TRAJECTORY]
+if TREE_CONFIG["enabled"]:
+    FINAL_OUTPUTS.extend([TREE_BY_REP, TREE_SUMMARY])
+
+
+def replicate_directory(wildcards):
+    return str(RESULTS / f"{PARAMETER}_{wildcards.value}" / f"rep{wildcards.rep}")
+
+
+def tree_options():
+    options = []
+    for name, population_id in TREE_CONFIG["populations"].items():
+        options.extend(["--population", f"{name}:{int(population_id)}"])
+    for name, (start, end) in TREE_CONFIG["regions"].items():
+        options.extend(["--region", f"{name}:{int(start)}:{int(end)}"])
+    options.extend(["--final-sample-time", str(TREE_CONFIG.get("final_sample_time", 0))])
+
+    overlay = TREE_CONFIG["neutral_overlay"]
+    if overlay["enabled"]:
+        options.extend(["--neutral-rate", str(overlay["rate"])])
+        options.extend(["--neutral-seed-base", str(overlay["seed_base"])])
+        if overlay.get("keep_existing", False):
+            options.append("--keep-existing-mutations")
+
+    recapitation = TREE_CONFIG["recapitation"]
+    if recapitation["enabled"]:
+        options.extend([
+            "--recapitate",
+            "--ancestral-ne", str(recapitation["ancestral_Ne"]),
+            "--recombination-rate", str(recapitation["recombination_rate"]),
+            "--recapitation-seed-base", str(recapitation["seed_base"]),
+        ])
+    return " ".join(shlex.quote(option) for option in options)
+
+
+rule all:
+    input:
+        FINAL_OUTPUTS
+
+
+rule merge_and_validate_replicate:
+    output:
+        merged=MERGED,
+        qc=QC,
+    params:
+        replicate_directory=replicate_directory,
+    shell:
+        r"""
+        python {SCRIPTS}/merge_replicate_csv.py \
+          --replicate-dir {params.replicate_directory:q} \
+          --parameter-name {PARAMETER:q} \
+          --parameter-value {wildcards.value:q} \
+          --replicate {wildcards.rep} \
+          --first-generation {FIRST_GENERATION} \
+          --target-generation {TARGET_GENERATION} \
+          --full-csv-name {FILES[full_csv]:q} \
+          --section-pattern {FILES[section_csv_pattern]:q} \
+          --finished-marker {FILES[finished_marker]:q} \
+          --burnin-tree-name {FILES[burnin_tree]:q} \
+          --final-tree-name {FILES[final_tree]:q} \
+          --merged-output {output.merged:q} \
+          --qc-output {output.qc:q}
+        """
+
+
+rule summarize_completion:
+    input:
+        ALL_QC,
+    output:
+        audit=AUDIT,
+        summary=AUDIT_SUMMARY,
+    shell:
+        r"""
+        python {SCRIPTS}/aggregate_audit.py \
+          --qc-root {OUTPUT}/qc \
+          --audit-output {output.audit:q} \
+          --summary-output {output.summary:q}
+        """
+
+
+rule summarize_population:
+    input:
+        merged=ALL_MERGED,
+        qc=ALL_QC,
+    output:
+        by_replicate=POP_BY_REP,
+        endpoint=POP_ENDPOINT,
+        trajectory=POP_TRAJECTORY,
+    params:
+        eligibility=str(config["population_summary"]["eligibility"]),
+    shell:
+        r"""
+        python {SCRIPTS}/summarize_population.py \
+          --analysis-root {OUTPUT} \
+          --eligibility-field {params.eligibility:q} \
+          --target-generation {TARGET_GENERATION} \
+          --replicate-output {output.by_replicate:q} \
+          --endpoint-output {output.endpoint:q} \
+          --trajectory-output {output.trajectory:q}
+        """
+
+
+if TREE_CONFIG["enabled"]:
+    rule analyze_one_tree:
+        output:
+            TREE_RESULT,
+        params:
+            replicate_directory=replicate_directory,
+            options=tree_options(),
+        shell:
+            r"""
+            python {SCRIPTS}/analyze_tree.py \
+              --replicate-dir {params.replicate_directory:q} \
+              --tree-name {FILES[final_tree]:q} \
+              --parameter-name {PARAMETER:q} \
+              --parameter-value {wildcards.value:q} \
+              --replicate {wildcards.rep} \
+              {params.options} \
+              --output {output:q}
+            """
+
+
+    rule summarize_tree_statistics:
+        input:
+            ALL_TREE_RESULTS,
+        output:
+            by_replicate=TREE_BY_REP,
+            summary=TREE_SUMMARY,
+        shell:
+            r"""
+            python {SCRIPTS}/summarize_tree_statistics.py \
+              --tree-results-root {OUTPUT}/trees/per_replicate \
+              --combined-output {output.by_replicate:q} \
+              --summary-output {output.summary:q}
+            """
