@@ -1,5 +1,3 @@
-# Configuration file for pipeline 1 
-
 # Paths
 base: "$HOME/slim_runs"
 result_name: "pipeline1_full_muBDMI_1e-4_50reps"
