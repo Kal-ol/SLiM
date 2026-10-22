@@ -1,0 +1,1181 @@
+// Corrected post-contact outcrossing: all interpopulation crosses -> P3.
+// phenotype retrive
+function (numeric) storedPhenoEffect(object<Mutation>$ phenoMut)
+{
+    deltaZ = phenoMut.getValue("deltaZ");
+
+    if (isNULL(deltaZ))
+        stop("Missing deltaZ for m3 mutation " + phenoMut.id +
+             ". Restore the matching phenotype-effect sidecar file.");
+
+    return deltaZ;
+}
+
+// vector for individual phenotype based on mutation - cahced
+function (numeric) getPhenotype(object<Individual>$ ind)
+{
+    muts = ind.genomes.mutationsOfType(m3);
+
+    if (size(muts) == 0)
+        return ANC_Z;
+
+    nMuts = size(muts);
+    effects = sapply(muts, "storedPhenoEffect(applyValue);");
+    z1Effects = effects[seq(0, 2 * nMuts - 2, by = 2)];
+    z2Effects = effects[seq(1, 2 * nMuts - 1, by = 2)];
+
+    return c(ANC_Z[0] + sum(z1Effects),
+             ANC_Z[1] + sum(z2Effects));
+}
+
+// Mean phenotype of a set of individuals - vector
+function (numeric) meanPhenotype(object<Individual> inds)
+{
+    n = size(inds);
+
+    if (n == 0)
+        return c(0.0, 0.0);
+
+    zz = sapply(inds, "getPhenotype(applyValue);");   // interleaved z1,z2
+
+    return c(mean(zz[seq(0, 2 * n - 2, by = 2)]),
+             mean(zz[seq(1, 2 * n - 1, by = 2)]));
+}
+
+// Exact population-level phenotype summaries. Variances and covariance use
+// denominator N-1; they are reported as zero when fewer than two individuals
+// are present.
+function (numeric) phenotypeSummary(object<Individual> inds)
+{
+    n = size(inds);
+
+    if (n == 0)
+        return c(0.0, 0.0, 0.0, 0.0, 0.0);
+
+    zz = sapply(inds, "getPhenotype(applyValue);");
+    z1 = zz[seq(0, 2 * n - 2, by = 2)];
+    z2 = zz[seq(1, 2 * n - 1, by = 2)];
+    meanZ1 = mean(z1);
+    meanZ2 = mean(z2);
+
+    if (n < 2)
+        return c(meanZ1, meanZ2, 0.0, 0.0, 0.0);
+
+    varZ1 = sum((z1 - meanZ1)^2) / (n - 1);
+    varZ2 = sum((z2 - meanZ2)^2) / (n - 1);
+    covZ1Z2 = sum((z1 - meanZ1) * (z2 - meanZ2)) / (n - 1);
+
+    return c(meanZ1, meanZ2, varZ1, varZ2, covZ1Z2);
+}
+
+// Save phenotypes for exactly the individuals retained as historical genetic
+// samples. pedigree_id links these rows to Individual metadata in the .trees.
+function (void) writeSampledPhenotypes(object<Individual> inds,
+                                       string$ populationName)
+{
+    n = size(inds);
+    if (n == 0)
+        return;
+
+    zz = sapply(inds, "getPhenotype(applyValue);");
+    z1 = zz[seq(0, 2 * n - 2, by = 2)];
+    z2 = zz[seq(1, 2 * n - 1, by = 2)];
+
+    lines = community.tick + "," + populationName + "," +
+            inds.pedigreeID + "," + z1 + "," + z2;
+    writeFile(sampledPhenotypeFile, lines, append=T);
+}
+
+
+
+function (float$) densitySum(numeric focalZ, numeric cz1, numeric cz2)
+{
+    if (size(cz1) == 0)
+        return 0.0;
+
+    d2 = (cz1 - focalZ[0])^2 + (cz2 - focalZ[1])^2;
+
+    return sum(exp(-d2 / COMP_DENOM));
+}
+
+function (float) mateWeights(numeric focalZ, numeric cz1, numeric cz2)
+{
+    d2 = (cz1 - focalZ[0])^2 + (cz2 - focalZ[1])^2;
+
+    return exp(-d2 / MATE_DENOM) + epsilonMate;
+}
+
+function (float$) densityFecundity(numeric$ Nlocal)
+{
+    return dd_rate0 / (1.0 + alpha * Nlocal);
+}
+
+
+// BDMI function
+function (float$) bdmiMultiplier(object<Individual>$ ind)
+{
+    genomeA = ind.genome1;
+    genomeB = ind.genome2;
+
+    m1_genomeA = genomeA.mutationsOfType(m1);
+    m1_genomeB = genomeB.mutationsOfType(m1);
+
+    if (size(m1_genomeA) + size(m1_genomeB) == 0)
+        return 1.0;
+
+    m2_genomeA = genomeA.mutationsOfType(m2);
+    m2_genomeB = genomeB.mutationsOfType(m2);
+
+    if (size(m2_genomeA) + size(m2_genomeB) == 0)
+        return 1.0;
+
+    n1_hom = size(setIntersection(m1_genomeA, m1_genomeB));
+    n2_hom = size(setIntersection(m2_genomeA, m2_genomeB));
+
+    n1_tot = size(m1_genomeA) + size(m1_genomeB) - n1_hom;
+    n2_tot = size(m2_genomeA) + size(m2_genomeB) - n2_hom;
+
+    n_pairs_total = min(n1_tot, n2_tot);
+
+    if (n_pairs_total == 0)
+        return 1.0;
+
+    n_pairs_hom = min(n1_hom, n2_hom);
+    n_pairs_het = n_pairs_total - n_pairs_hom;
+
+    return ((1.0 - sb)^n_pairs_hom) * ((1.0 - h_bdmi * sb)^n_pairs_het);
+}
+
+
+// optimum phenotyp
+
+function (Nf) thetaByPop(object<Subpopulation>$ pop)
+{
+    if (pop == p1)
+        return c(theta1_z1, theta1_z2);
+
+    if (pop == p2)
+        return c(theta2_z1, theta2_z2);
+
+    return c(thetaH_z1, thetaH_z2);
+}
+
+// TRAIT BASED SELECTION
+function (Nf) thetaForPop(object<Subpopulation>$ pop)
+{
+    if (community.tick <= burnin)
+        return thetaByPop(pop);
+
+    if (envScenario == "neutral")
+        return NULL;
+
+    if ((envScenario == "theta1") | (envScenario == "same_env"))
+        return c(theta1_z1, theta1_z2);
+
+    if (envScenario == "theta2")
+        return c(theta2_z1, theta2_z2);
+
+    if (envScenario == "novel")
+        return c(thetaN_z1, thetaN_z2);
+
+    // "twohab"
+    return thetaByPop(pop);
+}
+
+
+//  genomic positions
+
+function (integer) drawphenoPosition(void)
+{
+    return rdunif(1, phenoStart, phenoEnd);
+}
+
+function (integer) drawBDMIPosition(void)
+{
+    return rdunif(1, bdmiStart, bdmiEnd);
+}
+
+function (integer) drawNeutralPosition(void)
+{
+    return rdunif(1, neutralStart, neutralEnd);
+}
+
+
+function (logical$) hasCurrentPhenoCache(object<Individual>$ ind)
+{
+    cacheTick = ind.getValue("phenoCacheTick");
+
+    if (isNULL(cacheTick))
+        return F;
+
+    return (cacheTick == (community.tick - 1));
+}
+
+
+function (void) cacheCandidateArrays(object<Subpopulation>$ pop, string$ suffix)
+{
+    inds = pop.individuals;
+
+    idx = integer(0);
+    z1 = float(0);
+    z2 = float(0);
+
+    if (size(inds) > 0)
+    {
+        hasCache = sapply(inds, "hasCurrentPhenoCache(applyValue);");
+        idx = which((inds.tag == 1) & hasCache);
+
+        if (size(idx) > 0)
+        {
+            cands = inds[idx];
+            z1 = sapply(cands, "applyValue.getValue('cachedZ1');");
+            z2 = sapply(cands, "applyValue.getValue('cachedZ2');");
+        }
+    }
+
+    defineGlobal("CIDX_" + suffix, idx);
+    defineGlobal("CZ1_" + suffix, z1);
+    defineGlobal("CZ2_" + suffix, z2);
+}
+
+
+// phenotype-effect checkpoint 
+function (void) writePhenotypeEffects(string$ path)
+{
+    muts = sim.mutationsOfType(m3);
+    lines = "mutation_id,delta_z1,delta_z2";
+
+    if (size(muts) > 0)
+    {
+        nMuts = size(muts);
+
+        // One pass, then vectorized formatting -- see the note in
+        // restorePhenotypeEffects() about growing a vector inside a loop.
+        effects = sapply(muts, "storedPhenoEffect(applyValue);");
+        z1 = effects[seq(0, 2 * nMuts - 2, by = 2)];
+        z2 = effects[seq(1, 2 * nMuts - 1, by = 2)];
+
+        lines = c(lines, muts.id + "," +
+                         format("%.17g", z1) + "," +
+                         format("%.17g", z2));
+    }
+
+    writeFile(path, lines, append=F);
+}
+
+function (void) restorePhenotypeEffects(string$ path)
+{
+    lines = readFile(path);
+
+    if (size(lines) == 0)
+        stop("Phenotype-effect sidecar was empty: " + path);
+
+    muts = sim.mutationsOfType(m3);
+
+    if (size(muts) == 0)
+        return;
+
+    if (size(lines) == 1)
+        stop("Checkpoint contains m3 mutations, but the phenotype-effect " +
+             "sidecar contains no effects: " + path);
+
+
+    nEffects = size(lines) - 1;
+    fields = strsplit(paste(lines[1:(size(lines) - 1)], sep=","), ",");
+
+    if (size(fields) != 3 * nEffects)
+        stop("Malformed phenotype-effect sidecar (expected 3 fields per row): " +
+             path);
+
+    effectIds = asInteger(fields[seq(0, 3 * nEffects - 3, by = 3)]);
+    effectZ1 = asFloat(fields[seq(1, 3 * nEffects - 2, by = 3)]);
+    effectZ2 = asFloat(fields[seq(2, 3 * nEffects - 1, by = 3)]);
+
+    effectIndex = match(muts.id, effectIds);
+
+    if (any(effectIndex < 0))
+        stop("Phenotype-effect sidecar does not contain every m3 mutation " +
+             "present in the checkpoint: " + path);
+
+    for (i in seqAlong(muts))
+        muts[i].setValue("deltaZ",
+                         c(effectZ1[effectIndex[i]], effectZ2[effectIndex[i]]));
+
+    catn("Restored phenotype effects for " + size(muts) + " m3 mutations.");
+}
+
+
+// Eligibility is indexed by population and within-population individual order,
+// which outputFull()/readFromPopulationFile() preserve. Keep this sidecar with
+// its exact checkpoint; neither tags nor cached phenotype values are serialized
+// by outputFull(). No random numbers are consumed by saving/restoring it.
+function (void) writeEligibility(string$ path)
+{
+    lines = "population_id,individual_index,survived";
+    for (pop in sim.subpopulations)
+    {
+        inds = pop.individuals;
+        if (size(inds) > 0)
+            lines = c(lines, pop.id + "," + seqAlong(inds) + "," + inds.tag);
+    }
+    writeFile(path, lines, append=F);
+}
+
+function (void) restoreEligibility(string$ path)
+{
+    lines = readFile(path);
+    if (size(lines) == 0)
+        stop("Empty eligibility sidecar: " + path);
+    if (lines[0] != "population_id,individual_index,survived")
+        stop("Invalid eligibility sidecar header: " + path);
+
+    popIds = integer(0);
+    indices = integer(0);
+    tags = integer(0);
+    if (size(lines) > 1)
+    {
+        nRows = size(lines) - 1;
+        fields = strsplit(paste(lines[1:(size(lines) - 1)], sep=","), ",");
+        if (size(fields) != 3 * nRows)
+            stop("Malformed eligibility sidecar: " + path);
+        popIds = asInteger(fields[seq(0, 3 * nRows - 3, by=3)]);
+        indices = asInteger(fields[seq(1, 3 * nRows - 2, by=3)]);
+        tags = asInteger(fields[seq(2, 3 * nRows - 1, by=3)]);
+    }
+
+    if (size(tags) != size(sim.subpopulations.individuals))
+        stop("Eligibility sidecar individual count does not match checkpoint.");
+    if (any((tags != 0) & (tags != 1)))
+        stop("Eligibility sidecar tags must be 0 or 1.");
+    if (any(match(popIds, sim.subpopulations.id) < 0))
+        stop("Eligibility sidecar contains an unknown population.");
+
+    for (pop in sim.subpopulations)
+    {
+        rows = which(popIds == pop.id);
+        inds = pop.individuals;
+        if (size(rows) != size(inds))
+            stop("Eligibility sidecar population count does not match checkpoint.");
+        if (size(inds) == 0)
+            next;
+        if (any(indices[rows] != seqAlong(inds)))
+            stop("Eligibility sidecar indices do not match checkpoint order.");
+
+        inds.tag = tags[rows];
+        for (ind in inds[inds.tag == 1])
+        {
+            z = getPhenotype(ind);
+            ind.setValue("cachedZ1", z[0]);
+            ind.setValue("cachedZ2", z[1]);
+            ind.setValue("phenoCacheTick", community.tick);
+        }
+    }
+    catn("Restored survival eligibility from: " + path);
+}
+
+
+// Normalize Linux paths for input/output collision checks. The launcher must
+// additionally resolve symlinks (realpath) before passing paths to SLiM.
+function (string$) normalizedRunPath(string$ path)
+{
+    if (strprefix(path, "~"))
+        stop("Use explicit absolute paths instead of ~ in run file paths.");
+    if (!strprefix(path, "/"))
+        path = getwd() + "/" + path;
+    parts = string(0);
+    for (part in strsplit(path, "/"))
+    {
+        if ((part == "") | (part == "."))
+            next;
+        if (part == "..")
+        {
+            if (size(parts) == 1)
+                parts = string(0);
+            else if (size(parts) > 1)
+                parts = parts[seqLen(size(parts) - 1)];
+        }
+        else
+            parts = c(parts, part);
+    }
+    return "/" + paste(parts, sep="/");
+}
+
+function (void) protectRunInputs(void)
+{
+    inputs = c(checkpointIn, checkpointSeedIn, phenoEffectsIn, eligibilityIn);
+    inputs = inputs[inputs != "NONE"];
+    inputPaths = string(0);
+    if (size(inputs) > 0)
+        inputPaths = sapply(inputs, "normalizedRunPath(applyValue);");
+
+    outputs = c(outputFile, sampledPhenotypeFile);
+    if (writeFinalCheckpoint)
+        outputs = c(outputs, checkpointOut, checkpointSeedOut,
+                    phenoEffectsOut, eligibilityOut);
+    if (recordTreeSeq & (sectionStart == 0))
+        outputs = c(outputs, burninTreeSeqFile);
+    if (recordTreeSeq & writeFinalTree)
+        outputs = c(outputs, treeSeqFile);
+    outputPaths = sapply(outputs, "normalizedRunPath(applyValue);");
+
+    if (size(unique(outputPaths)) != size(outputPaths))
+        stop("Two active outputs point to the same path. Use distinct files.");
+    for (path in outputPaths)
+        if (any(inputPaths == path))
+            stop("Output would overwrite a restart input: " + path);
+}
+
+initialize()
+{
+    initializeSLiMModelType("nonWF");
+
+    // Tree-sequence recording can be disabled for fast demographic screens.
+    // Runs selected for ancestry analysis can set recordTreeSeq=T and
+    // writeFinalTree=T.
+    if (!exists("recordTreeSeq"))
+        defineConstant("recordTreeSeq", T);
+
+    initializeSLiMOptions(keepPedigrees=recordTreeSeq);
+
+    if (recordTreeSeq)
+        initializeTreeSeq();
+
+
+    if (!exists("K_p1"))
+        defineConstant("K_p1", 100);
+
+    if (!exists("K_p2"))
+        defineConstant("K_p2", 100);
+
+    if (!exists("K_p3"))
+        defineConstant("K_p3", 100);
+
+    if (!exists("burnin"))
+        defineConstant("burnin", 2000);
+
+    if (!exists("endGen"))
+        defineConstant("endGen", 5000);
+
+    if (!exists("L"))
+        defineConstant("L", 100000);
+
+
+    if (!exists("phenoStart"))
+        defineConstant("phenoStart", 0);
+
+    if (!exists("phenoEnd"))
+        defineConstant("phenoEnd", asInteger(floor(L / 3.0)) - 1);
+
+    if (!exists("bdmiStart"))
+        defineConstant("bdmiStart", phenoEnd + 1);
+
+    if (!exists("bdmiEnd"))
+        defineConstant("bdmiEnd", asInteger(floor(2.0 * L / 3.0)) - 1);
+
+    if (!exists("neutralStart"))
+        defineConstant("neutralStart", bdmiEnd + 1);
+
+    if (!exists("neutralEnd"))
+        defineConstant("neutralEnd", L - 1);
+
+    if (!exists("muNeutral"))
+        defineConstant("muNeutral", 0);
+
+    if (!exists("mupheno"))
+        defineConstant("mupheno", 1e-5);
+
+    if (!exists("muBDMI"))
+        defineConstant("muBDMI", 1e-5);
+
+    if (!exists("recomb"))
+        defineConstant("recomb", 1e-8);
+
+
+    if (!exists("alpha"))
+        defineConstant("alpha", 0.0075);
+
+    if (!exists("dd_rate0"))
+        defineConstant("dd_rate0", 0.5);
+
+    if (!exists("maxOvules"))
+        defineConstant("maxOvules", 5);
+
+
+    if (!exists("hybRate"))
+        defineConstant("hybRate", 0.05);
+
+    if ((hybRate < 0.0) | (hybRate > 1.0))
+        stop("hybRate must be between 0 and 1.");
+
+    if (!exists("sb"))
+        defineConstant("sb", 0.25);
+
+    if (!exists("h_bdmi"))
+        defineConstant("h_bdmi", 0.5);
+
+    if (!exists("addNeutralForward"))
+        defineConstant("addNeutralForward", F);
+
+    defineConstant("phenoRegionLength", phenoEnd - phenoStart + 1);
+    defineConstant("bdmiRegionLength", bdmiEnd - bdmiStart + 1);
+    defineConstant("neutralRegionLength", neutralEnd - neutralStart + 1);
+
+    // BDMI accumulation mode:
+
+    if (!exists("bdmiAccumulation"))
+        defineConstant("bdmiAccumulation", "burnin");
+
+    if ((bdmiAccumulation != "burnin") & (bdmiAccumulation != "continuous"))
+        stop("Unknown bdmiAccumulation. Use 'burnin' or 'continuous'.");
+
+    // Neutral mutations are optional.
+    if (addNeutralForward)
+        defineConstant("muNeutralUsed", muNeutral);
+    else
+        defineConstant("muNeutralUsed", 0.0);
+
+    defineConstant("muTotal", mupheno + 2.0 * muBDMI + muNeutralUsed);
+
+
+    if (!exists("phenoLambda"))
+        defineConstant("phenoLambda", 0.02);
+
+
+    if (!exists("theta1_z1"))
+        defineConstant("theta1_z1", 1.2);
+
+    if (!exists("theta1_z2"))
+        defineConstant("theta1_z2", 1.5);
+
+    if (!exists("theta2_z1"))
+        defineConstant("theta2_z1", 3.5);
+
+    if (!exists("theta2_z2"))
+        defineConstant("theta2_z2", 3.0);
+
+
+    if (!exists("ancestral_z1"))
+        defineConstant("ancestral_z1", (theta1_z1 + theta2_z1) / 2.0);
+
+    if (!exists("ancestral_z2"))
+        defineConstant("ancestral_z2", (theta1_z2 + theta2_z2) / 2.0);
+
+    if (!exists("thetaH_z1"))
+        defineConstant("thetaH_z1", ancestral_z1);
+
+    if (!exists("thetaH_z2"))
+        defineConstant("thetaH_z2", ancestral_z2);
+
+    if (!exists("thetaN_z1"))
+        defineConstant("thetaN_z1", 5.8);
+
+    if (!exists("thetaN_z2"))
+        defineConstant("thetaN_z2", 4.5);
+
+    if (!exists("traitSigma"))
+        defineConstant("traitSigma", 1.50);
+
+    if (!exists("compSigma"))
+        defineConstant("compSigma", 0.30);
+
+    if (!exists("mateSigma"))
+        defineConstant("mateSigma", 0.30);
+
+    if (!exists("epsilonMate"))
+        defineConstant("epsilonMate", 1e-6);
+
+    // Post-burn-in environmental scenario. 
+    if (!exists("envScenario"))
+        defineConstant("envScenario", "neutral");
+
+    if ((envScenario != "same_env") & (envScenario != "neutral") & (envScenario != "theta1") &
+        (envScenario != "theta2") & (envScenario != "twohab") &
+        (envScenario != "novel"))
+        stop("Unknown envScenario. Use same_env, neutral, theta1, theta2, twohab, or novel.");
+
+
+    defineConstant("ANC_Z", c(ancestral_z1, ancestral_z2));
+    defineConstant("TRAIT_DENOM", 2.0 * traitSigma^2);
+    defineConstant("COMP_DENOM", 2.0 * compSigma^2);
+    defineConstant("MATE_DENOM", 2.0 * mateSigma^2);
+
+    // Output files.
+    if (!exists("outputFile"))
+        defineConstant("outputFile", "output.txt");
+
+    if (!exists("treeSeqFile"))
+        defineConstant("treeSeqFile", "pheno_2d_model_final.trees");
+
+    if (!exists("writeFinalTree"))
+        defineConstant("writeFinalTree", T);
+
+    if (!exists("writeFinalCheckpoint"))
+        defineConstant("writeFinalCheckpoint", T);
+
+    if (!exists("burninTreeSeqFile"))
+        defineConstant("burninTreeSeqFile", "pheno_2d_model_burnin_tick2000.trees");
+
+    if (!exists("rememberEvery"))
+        defineConstant("rememberEvery", 100);
+
+    if (!exists("maxRememberPerPop"))
+        defineConstant("maxRememberPerPop", 200);
+
+    if (!exists("sampledPhenotypeFile"))
+        defineConstant("sampledPhenotypeFile", "sampled_individual_phenotypes.csv");
+
+    if (maxRememberPerPop < 1)
+        stop("maxRememberPerPop must be at least 1.");
+
+
+    // Section/checkpoint controls for Slurm chunked runs
+
+    if (!exists("sectionStart"))
+        defineConstant("sectionStart", 0);
+
+    if (!exists("sectionEnd"))
+        defineConstant("sectionEnd", endGen);
+
+    if (!exists("checkpointIn"))
+        defineConstant("checkpointIn", "NONE");
+
+    if (!exists("checkpointSeedIn"))
+        defineConstant("checkpointSeedIn", "NONE");
+
+    if (!exists("checkpointOut"))
+        defineConstant("checkpointOut", "checkpoint.bin");
+
+    if (!exists("checkpointSeedOut"))
+        defineConstant("checkpointSeedOut", "checkpoint.seed");
+
+    if (!exists("phenoEffectsIn"))
+        defineConstant("phenoEffectsIn", "NONE");
+
+    if (!exists("phenoEffectsOut"))
+        defineConstant("phenoEffectsOut", "phenotype_effects.csv");
+
+    if (sectionStart < 0)
+        stop("sectionStart must be >= 0.");
+
+    if (sectionEnd <= sectionStart)
+        stop("sectionEnd must be greater than sectionStart.");
+
+    if (sectionEnd > endGen)
+        stop("sectionEnd must be <= endGen.");
+
+
+    // New checkpoints preserve viability outcomes; old checkpoints remain
+    // readable and reconstruct eligibility once at the saved boundary.
+    if (!exists("eligibilityIn"))
+    {
+        candidateEligibility = checkpointIn + ".eligibility.csv";
+        if ((checkpointIn != "NONE") & fileExists(candidateEligibility))
+            defineConstant("eligibilityIn", candidateEligibility);
+        else
+            defineConstant("eligibilityIn", "NONE");
+    }
+    if (!exists("eligibilityOut"))
+        defineConstant("eligibilityOut", checkpointOut + ".eligibility.csv");
+
+    protectRunInputs();
+
+    defineGlobal("RESTART_BOUNDARY_TICK", -1);
+    defineGlobal("RESTORED_ELIGIBILITY", F);
+
+    // Region-specific mutation rates:
+    //   pheno region   : mupheno
+    //   BDMI region    : 2*muBDMI total, split equally between m1 and m2
+    //   neutral region : muNeutralUsed
+    initializeMutationRate(c(mupheno, 2.0 * muBDMI, muNeutralUsed),
+                           c(phenoEnd, bdmiEnd, neutralEnd));
+
+    initializeRecombinationRate(recomb);
+
+    initializeMutationType("m1", 0.5, "f", 0.0);
+    initializeMutationType("m2", 0.5, "f", 0.0);
+    initializeMutationType("m3", 0.5, "f", 0.0);
+    initializeMutationType("m7", 0.5, "f", 0.0);
+
+    m1.convertToSubstitution = F;
+    m2.convertToSubstitution = F;
+    m3.convertToSubstitution = F;
+    m7.convertToSubstitution = F;
+
+    initializeGenomicElementType("g1", m3, 1.0);
+    initializeGenomicElementType("g2", c(m1, m2), c(1.0, 1.0));
+    initializeGenomicElementType("g3", m7, 1.0);
+
+    initializeGenomicElement(g1, phenoStart, phenoEnd);
+    initializeGenomicElement(g2, bdmiStart, bdmiEnd);
+    initializeGenomicElement(g3, neutralStart, neutralEnd);
+}
+
+
+//  mutation callbacks
+
+// magnitude when a phenotype mutation first arises.
+mutation(m3)
+{
+    direction = rnorm(2);
+    directionLength = sqrt(sum(direction^2));
+
+    // A zero-length normal vector is effectively impossible, but guard it.
+    while (directionLength == 0.0)
+    {
+        direction = rnorm(2);
+        directionLength = sqrt(sum(direction^2));
+    }
+
+    direction = direction / directionLength;
+    effectSize = rexp(1, mu=phenoLambda);
+    mut.setValue("deltaZ", direction * effectSize);
+
+    return T;
+}
+
+// p1-type BDMI mutations: accepted only in p1.
+mutation(m1)
+{
+    if (subpop != p1)
+        return F;
+
+    if (bdmiAccumulation == "burnin")
+        return (community.tick <= burnin);
+
+    return T;   // continuous mode
+}
+
+// p2-type BDMI mutations: accepted only in p2.
+mutation(m2)
+{
+    if (subpop != p2)
+        return F;
+
+    if (bdmiAccumulation == "burnin")
+        return (community.tick <= burnin);
+
+    return T;   // continuous mode
+}
+
+mutation(m7)
+{
+    return addNeutralForward;
+}
+
+
+1 early()
+{
+    if ((sectionStart > 0) | (checkpointIn != "NONE"))
+    {
+        if (checkpointIn == "NONE")
+            stop("sectionStart > 0, but checkpointIn is NONE.");
+
+        if (checkpointSeedIn == "NONE")
+            stop("sectionStart > 0, but checkpointSeedIn is NONE.");
+
+        if (phenoEffectsIn == "NONE")
+            stop("sectionStart > 0, but phenoEffectsIn is NONE.");
+
+        restoredTick = sim.readFromPopulationFile(checkpointIn);
+        if (restoredTick != sectionStart)
+            stop("Checkpoint tick does not match sectionStart.");
+        defineGlobal("RESTART_BOUNDARY_TICK", restoredTick);
+
+        savedSeedLines = readFile(checkpointSeedIn);
+        if (size(savedSeedLines) == 0)
+            stop("checkpointSeedIn was empty: " + checkpointSeedIn);
+
+        savedSeed = asInteger(savedSeedLines[0]);
+        setSeed(savedSeed);
+
+        restorePhenotypeEffects(phenoEffectsIn);
+
+        if (eligibilityIn != "NONE")
+        {
+            if (!fileExists(eligibilityIn))
+                stop("Eligibility sidecar not found: " + eligibilityIn);
+            restoreEligibility(eligibilityIn);
+            defineGlobal("RESTORED_ELIGIBILITY", T);
+        }
+        else
+            catn("Legacy checkpoint: reconstructing viability eligibility once " +
+                 "at the saved tick using the restored seed and current settings.");
+
+        catn("Loaded checkpoint: " + checkpointIn);
+        catn("Checkpoint file tick: " + restoredTick);
+        catn("Restarted random seed from: " + checkpointSeedIn);
+        catn("Loaded phenotype effects from: " + phenoEffectsIn);
+    }
+    else
+    {
+        sim.addSubpop("p1", K_p1);
+        sim.addSubpop("p2", K_p2);
+        sim.addSubpop("p3", 0);
+
+        catn("Starting fresh section from generation 0.");
+    }
+
+    header = "Generation,Phase,EnvScenario,N_p1,N_p2,N_p3," +
+             "MeanZ1_p1,MeanZ2_p1,VarZ1_p1,VarZ2_p1,CovZ1Z2_p1," +
+             "MeanZ1_p2,MeanZ2_p2,VarZ1_p2,VarZ2_p2,CovZ1Z2_p2," +
+             "MeanZ1_p3,MeanZ2_p3,VarZ1_p3,VarZ2_p3,CovZ1Z2_p3," +
+             "BDMI_m1_p1,BDMI_m2_p1," +
+             "BDMI_m1_p2,BDMI_m2_p2," +
+             "BDMI_m1_p3,BDMI_m2_p3," +
+             "N_viable_p1,N_viable_p2,N_viable_p3";
+    writeFile(outputFile, header, append=F);
+
+    sampleHeader = "Generation,Population,pedigree_id,Z1,Z2";
+    writeFile(sampledPhenotypeFile, sampleHeader, append=F);
+
+    catn("Section start requested: " + sectionStart);
+    catn("Section end requested: " + sectionEnd);
+    catn("Writing per-generation output to: " + outputFile);
+}
+
+
+1:5000 reproduction()
+{
+    if (individual.tag == 0)
+        return;
+
+    if (!hasCurrentPhenoCache(individual))
+        stop("A reproducing individual lacks a current phenotype cache at " +
+             "tick " + community.tick + ".");
+
+    pop = individual.subpopulation;
+
+    // Candidate sets were resolved once, in first(). Only the index subset is
+    // redone here, because Individual vectors cannot be stored in globals.
+    if (pop == p1)      { cidx = CIDX_P1; ocz1 = CZ1_P1; ocz2 = CZ2_P1; }
+    else if (pop == p2) { cidx = CIDX_P2; ocz1 = CZ1_P2; ocz2 = CZ2_P2; }
+    else                { cidx = CIDX_P3; ocz1 = CZ1_P3; ocz2 = CZ2_P3; }
+
+    ownCands = pop.individuals[cidx];
+
+    focalZ = c(individual.getValue("cachedZ1"),
+               individual.getValue("cachedZ2"));
+
+    // --- local density (was an O(N) interpreted loop per parent) ---
+    if (community.tick <= burnin)
+        Nlocal = densitySum(focalZ, ocz1, ocz2);
+    else
+        Nlocal = densitySum(focalZ, CZ1_ALL, CZ2_ALL);
+
+    // The focal individual is itself in the cache and contributes exp(0) = 1.
+    Nlocal = max(0.0, Nlocal - 1.0);
+
+    fertRate = densityFecundity(Nlocal);
+    nOff = rbinom(1, maxOvules, fertRate);
+
+    if (nOff <= 0)
+        return;
+
+    // --- own-population mate pool, self removed ---
+    keep = (ownCands != individual);
+    homeCands = ownCands[keep];
+    hz1 = ocz1[keep];
+    hz2 = ocz2[keep];
+
+    if (community.tick <= burnin)
+    {
+        if (size(homeCands) == 0)
+            return;
+
+        // Weights computed ONCE per parent, then all mates drawn at once.
+        w = mateWeights(focalZ, hz1, hz2);
+        mates = sample(homeCands, nOff, replace=T, weights=w);
+
+        for (i in seqLen(nOff))
+            pop.addCrossed(individual, mates[i]);
+
+        return;
+    }
+
+    // --- post burn-in: external mating applies to all three populations ---
+    // hybRate chooses the combined external pool, not each population in turn.
+    // Individual mates retain the existing phenotype-assortative weights.
+    if (pop == p1)
+    {
+        otherCands = c(p2.individuals[CIDX_P2], p3.individuals[CIDX_P3]);
+        ocz1_o = c(CZ1_P2, CZ1_P3);
+        ocz2_o = c(CZ2_P2, CZ2_P3);
+    }
+    else if (pop == p2)
+    {
+        otherCands = c(p1.individuals[CIDX_P1], p3.individuals[CIDX_P3]);
+        ocz1_o = c(CZ1_P1, CZ1_P3);
+        ocz2_o = c(CZ2_P1, CZ2_P3);
+    }
+    else
+    {
+        otherCands = c(p1.individuals[CIDX_P1], p2.individuals[CIDX_P2]);
+        ocz1_o = c(CZ1_P1, CZ1_P2);
+        ocz2_o = c(CZ2_P1, CZ2_P2);
+    }
+
+    // Strict outcrossing: each ovule chooses its mating pool at hybRate.
+    // If that pool has no eligible partner, the attempt fails. No selfing
+    // and no redirection to another pool, including when hybRate is 0 or 1.
+    nHyb = sum(runif(nOff) < hybRate);
+    nHome = nOff - nHyb;
+
+    if ((nHome > 0) & (size(homeCands) > 0))
+    {
+        w = mateWeights(focalZ, hz1, hz2);
+        mates = sample(homeCands, nHome, replace=T, weights=w);
+
+        // P1 x P1 -> P1; P2 x P2 -> P2; P3 x P3 -> P3.
+        for (i in seqLen(nHome))
+            pop.addCrossed(individual, mates[i]);
+    }
+
+    if ((nHyb > 0) & (size(otherCands) > 0))
+    {
+        w = mateWeights(focalZ, ocz1_o, ocz2_o);
+        mates = sample(otherCands, nHyb, replace=T, weights=w);
+
+        // Every interpopulation cross, including either backcross direction,
+        // produces an offspring assigned to P3.
+        for (i in seqLen(nHyb))
+            p3.addCrossed(individual, mates[i]);
+    }
+}
+
+
+// survival tagging
+
+1:5000 early()
+{
+    // A late-stage checkpoint already contains this cycle's viability result.
+    // Legacy checkpoints without eligibility data use the normal draw once.
+    if ((community.tick == RESTART_BOUNDARY_TICK) & RESTORED_ELIGIBILITY)
+        return;
+
+    for (pop in sim.subpopulations)
+    {
+        inds = pop.individuals;
+        n = size(inds);
+
+        if (n == 0)
+            next;
+
+        zz = sapply(inds, "getPhenotype(applyValue);");
+        z1 = zz[seq(0, 2 * n - 2, by = 2)];
+        z2 = zz[seq(1, 2 * n - 1, by = 2)];
+
+        theta = thetaForPop(pop);
+
+        if (isNULL(theta))
+        {
+            traitFit = rep(1.0, n);
+        }
+        else
+        {
+            d2 = (z1 - theta[0])^2 + (z2 - theta[1])^2;
+            traitFit = exp(-d2 / TRAIT_DENOM);
+        }
+
+        bdmiFit = sapply(inds, "bdmiMultiplier(applyValue);");
+
+        totalFit = bdmiFit * traitFit;
+        totalFit[totalFit < 0.0] = 0.0;
+        totalFit[totalFit > 1.0] = 1.0;
+
+        survived = (runif(n) <= totalFit);
+        inds.tag = asInteger(survived);
+
+        // Stamp each survivor with its own phenotype. This is the only place
+        // phenotypes are recorded; the flat arrays used by reproduction() are
+        // assembled from these values in first(), after the adults are culled.
+        survivorIndices = which(survived);
+        for (i in survivorIndices)
+        {
+            inds[i].setValue("cachedZ1", z1[i]);
+            inds[i].setValue("cachedZ2", z2[i]);
+            inds[i].setValue("phenoCacheTick", community.tick);
+        }
+    }
+}
+
+
+// per-gen candidate arrays.
+
+1:5000 first()
+{
+    if (!exists("p1"))
+        return;   // subpopulations not created yet (tick 1)
+
+    cacheCandidateArrays(p1, "P1");
+    cacheCandidateArrays(p2, "P2");
+    cacheCandidateArrays(p3, "P3");
+
+    defineGlobal("CZ1_ALL", c(CZ1_P1, CZ1_P2, CZ1_P3));
+    defineGlobal("CZ2_ALL", c(CZ2_P1, CZ2_P2, CZ2_P3));
+}
+
+
+// output
+
+// Adults die after reproduction - annual model.
+// Newborns remain and become the next generation.
+1:5000 late()
+{
+    // This late-stage boundary was already completed before saving. Do not
+    // repeat culling, output, remembering (RNG draws), or checkpoint writing.
+    if (community.tick == RESTART_BOUNDARY_TICK)
+        return;
+
+    adults = sim.subpopulations.individuals[sim.subpopulations.individuals.age > 0];
+
+    if (size(adults) > 0)
+        sim.killIndividuals(adults);
+}
+
+
+1:5000 late()
+{
+    // This late-stage boundary was already completed before saving. Do not
+    // repeat culling, output, remembering (RNG draws), or checkpoint writing.
+    if (community.tick == RESTART_BOUNDARY_TICK)
+        return;
+
+    summaryP1 = phenotypeSummary(p1.individuals);
+    summaryP2 = phenotypeSummary(p2.individuals);
+    summaryP3 = phenotypeSummary(p3.individuals);
+
+    // Number of distinct segregating BDMI variants currently present in
+    // each population. These are variant counts, not mutation-copy counts.
+    bdmiM1P1 = size(unique(p1.genomes.mutationsOfType(m1)));
+    bdmiM2P1 = size(unique(p1.genomes.mutationsOfType(m2)));
+    bdmiM1P2 = size(unique(p2.genomes.mutationsOfType(m1)));
+    bdmiM2P2 = size(unique(p2.genomes.mutationsOfType(m2)));
+    bdmiM1P3 = size(unique(p3.genomes.mutationsOfType(m1)));
+    bdmiM2P3 = size(unique(p3.genomes.mutationsOfType(m2)));
+
+    if (community.tick <= burnin)
+        phase = "burnin";
+    else
+        phase = "postBurnin";
+
+    outLine = community.tick + "," +
+              phase + "," +
+              envScenario + "," +
+              p1.individualCount + "," +
+              p2.individualCount + "," +
+              p3.individualCount + "," +
+              paste(summaryP1, sep=",") + "," +
+              paste(summaryP2, sep=",") + "," +
+              paste(summaryP3, sep=",") + "," +
+              bdmiM1P1 + "," + bdmiM2P1 + "," +
+              bdmiM1P2 + "," + bdmiM2P2 + "," +
+              bdmiM1P3 + "," + bdmiM2P3 + "," +
+              sum(p1.individuals.tag == 1) + "," +
+              sum(p2.individuals.tag == 1) + "," +
+              sum(p3.individuals.tag == 1);
+
+    writeFile(outputFile, outLine, append=T);
+}
+
+
+1:5000 late()
+{
+    // This late-stage boundary was already completed before saving. Do not
+    // repeat culling, output, remembering (RNG draws), or checkpoint writing.
+    if (community.tick == RESTART_BOUNDARY_TICK)
+        return;
+
+    shouldRemember = (community.tick == 1) |
+                     ((community.tick % rememberEvery) == 0) |
+                     (community.tick == endGen);
+
+    if (recordTreeSeq & shouldRemember)
+    {
+        if (p1.individualCount > 0)
+        {
+            sampledP1 = sample(p1.individuals,
+                               min(c(maxRememberPerPop, p1.individualCount)));
+            sim.treeSeqRememberIndividuals(sampledP1, permanent=T);
+            writeSampledPhenotypes(sampledP1, "p1");
+        }
+
+        if (p2.individualCount > 0)
+        {
+            sampledP2 = sample(p2.individuals,
+                               min(c(maxRememberPerPop, p2.individualCount)));
+            sim.treeSeqRememberIndividuals(sampledP2, permanent=T);
+            writeSampledPhenotypes(sampledP2, "p2");
+        }
+
+        if (p3.individualCount > 0)
+        {
+            sampledP3 = sample(p3.individuals,
+                               min(c(maxRememberPerPop, p3.individualCount)));
+            sim.treeSeqRememberIndividuals(sampledP3, permanent=T);
+            writeSampledPhenotypes(sampledP3, "p3");
+        }
+
+        catn("Remembered up to " + maxRememberPerPop +
+             " individuals per population at tick " + community.tick +
+             ": N_p1=" + p1.individualCount +
+             ", N_p2=" + p2.individualCount +
+             ", N_p3=" + p3.individualCount);
+    }
+
+    if (recordTreeSeq & (community.tick == burnin) & (sectionStart == 0))
+    {
+        sim.treeSeqOutput(burninTreeSeqFile);
+        catn("Burn-in tree sequence saved to: " + burninTreeSeqFile);
+    }
+}
+
+
+1:5000 late()
+{
+    // This late-stage boundary was already completed before saving. Do not
+    // repeat culling, output, remembering (RNG draws), or checkpoint writing.
+    if (community.tick == RESTART_BOUNDARY_TICK)
+        return;
+
+    if (community.tick == sectionEnd)
+    {
+        if (writeFinalCheckpoint)
+        {
+            // Save a restart point before the potentially memory-intensive
+            // final tree serialization. If treeSeqOutput() fails, these files
+            // survive.
+            newSeed = rdunif(1, 1, 1000000000);
+            setSeed(newSeed);
+
+            writePhenotypeEffects(phenoEffectsOut);
+            writeEligibility(eligibilityOut);
+            sim.outputFull(checkpointOut, binary=T);
+            writeFile(checkpointSeedOut, asString(newSeed), append=F);
+
+            catn("Checkpoint saved to: " + checkpointOut);
+            catn("Checkpoint seed saved to: " + checkpointSeedOut);
+            catn("Phenotype effects saved to: " + phenoEffectsOut);
+            catn("Survival eligibility saved to: " + eligibilityOut);
+        }
+
+        if (recordTreeSeq & (community.tick == endGen) & writeFinalTree)
+        {
+            sim.treeSeqOutput(treeSeqFile);
+
+            catn("Final counts: N_p1=" + p1.individualCount +
+                 ", N_p2=" + p2.individualCount +
+                 ", N_p3=" + p3.individualCount);
+
+            catn("Tree sequence saved to: " + treeSeqFile);
+        }
+        else if (community.tick == endGen)
+            catn("Final tree output disabled for this run.");
+
+        catn("Per-generation output saved to: " + outputFile);
+        catn("Sampled phenotypes saved to: " + sampledPhenotypeFile);
+        catn("Section finished at tick " + community.tick + ".");
+
+        sim.simulationFinished();
+    }
+}
+
