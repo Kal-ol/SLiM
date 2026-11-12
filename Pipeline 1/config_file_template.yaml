@@ -1,17 +1,18 @@
-# Paths mentioned on launcher and control sh
-slim_script: "$path"
-output_root: "$path"
-slim_module: "slim/4.3"
+base: "/scratch/general/vast/u6050972/slim_runs"
+burnin_result_name: "environment_hyb_sweep_fresh_burnins_muBDMI_1e-4_50reps"
+result_name: "environment_hyb_sweep_fresh_postburn_muBDMI_1e-4_50reps"
+slim_script: "/scratch/general/vast/u6050972/slim_runs/scripts/06_22_2026_model_v4_5.slim"
 
 # Launcher settings
 # I change allocation based on which Node and partion being used
-slurm_account: ""
-slurm_partition: ""
-slurm_qos: ""
-array_spec: ""
+slurm_account: "usuplants-np"
+slurm_partition: "usuplants-np"
+slurm_qos: "usuplants-np"
+time: "72:00:00"
+mem: "8G"
+array_spec: "120%50"
 cpus_per_task: 1
-mem: ""
-time: ""
+mem: "8"
 
 # Control settings. Seed = seed_base + array task ID.
 seed_base: 67000000
@@ -19,10 +20,36 @@ seed_base: 67000000
 # Full run: finish burn-in at tick 2000, and end at tick 4000.
 burnin: 2000
 end_gen: 4000
+total_reps: 50
+
+# parameter values
+K_p1: 100
+K_p2: 100
+K_p3: 100
+mu_pheno: "1e-5"
+mu_bdmi: "1e-4"
+mu_neutral: "0"
+recombination_rate: "1e-8"
+bdmi_accumulation: "burnin"
+sb: "0.25"
+h_bdmi: "0.5"
+trait_sigma: "1.5"
+competition_sigma: "0.30"
+mate_sigma: "0.30"
+epsilon_mate: "1e-6"
+pheno_lambda: "0.02"
+alpha: "0.01"
+dd_rate0: "0.5"
+max_ovules: 5
+
+theta1_z1_values: "1.775"
+theta1_z2_values: "1.875"
+theta2_z1: "3.500"
+theta2_z2: "3.000"
 
 # treatment applied after burn-in.
-scenario: "environmental conditions"
-hyb_rate: ""
+scenarios: "theta1"
+hyb_rates: "0.05 0.10 0.20 0.30 0.40 0.50"
 
 # Output options for a lightweight demographic example.
 record_tree_seq: false
