@@ -1,5 +1,7 @@
 #!/bin/bash
 set -euo pipefail
+
+# Read the configuration path
 CHECK_ONLY=0
 if [[ ${1:-} == --check ]]; then CHECK_ONLY=1; shift; fi
 [[ $# == 1 ]] || { echo "Usage: $0 [--check] CONFIG.yaml" >&2; exit 1; }
@@ -28,6 +30,8 @@ else:
         sys.exit('Missing required configuration key: ' + key)
 PY
 }
+
+# Project directory and the script each Slurm task will run
 BASE=$(realpath -e "$(cfg base)")
 CONTROL=$(realpath -e "$(cfg control_script)")
 SPEC=$(cfg array_spec)
@@ -95,11 +99,15 @@ if (( CHECK_ONLY )); then
     echo "Array preflight passed; no jobs submitted. Array: $SPEC"
     exit 0
 fi
+
+# Set Slurm resources and log paths; submit selected arraty
 mkdir -p "$BASE/logs"
 ARGS=(--job-name=slim_env_hyb_corrected --nodes=1 --ntasks=1
     --account="$(cfg slurm_account)" --partition="$(cfg slurm_partition)"
     --time="$(cfg time)" --mem="$(cfg mem)" --cpus-per-task="$(cfg cpus_per_task)"
     --array="$SPEC" --output="$BASE/logs/%x_%A_%a.out" --error="$BASE/logs/%x_%A_%a.err")
+
+# # Pass a QoS only if the configuration specifies
 QOS=$(cfg slurm_qos "")
 [[ -z $QOS ]] || ARGS+=(--qos="$QOS")
 sbatch "${ARGS[@]}" "$CONTROL" "$CONFIG"
