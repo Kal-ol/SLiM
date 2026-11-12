@@ -1,2 +1,4 @@
+SLiM models of parent–hybrid coexistence
+- Kallol Mozumdar (Rushworth Lab, Utah State University) | kallol.mozummdar@usu.edu
 
-
+Pipeline 1 contains scripts used For Chapter 1. I use SLiM simulations to test how hybridization rate, the mutation rate and strength of genetic incompatibilities, and other model parameters affect whether hybrids persist alongside both parental populations under different environmental conditions. The two parental populations evolve separately during burn-in. After secondary contact, the model allows hybridization and tracks all three populations over time. I compare replicate runs across parameter combinations and environments to identify where all three populations persist and where one or more are lost. YAML files define the treatments and Slurm settings. Runs can start from fresh populations and cover both phases, or reuse a burn-in checkpoint for multiple post-contact treatments.
