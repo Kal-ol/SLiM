@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: bash submit_full_example.sh ACCOUNT PARTITION
 if [[ $# -ne 2 ]]; then
     echo "Usage: $0 ACCOUNT PARTITION" >&2
     exit 1
@@ -18,7 +17,7 @@ output_root="$script_dir/../results/full_example"
 }
 mkdir -p "$output_root/logs"
 
-# Submit three replicates. Change the allocation and resource settings here.
+
 sbatch \
     --job-name=slim_full_example \
     --account="$1" \
@@ -30,7 +29,7 @@ sbatch \
     --output="$output_root/logs/%x_%A_%a.out" \
     "$control" "$model" "$output_root"
 
-# # Pass a QoS only if the configuration specifies
+# Pass a QoS only if the configuration specifies
 QOS=$(cfg slurm_qos "")
 [[ -z $QOS ]] || ARGS+=(--qos="$QOS")
 sbatch "${ARGS[@]}" "$CONTROL" "$CONFIG"
