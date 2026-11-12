@@ -1,0 +1,30 @@
+# Paths mentioned on launcher and control sh
+slim_script: "$path"
+output_root: "$path"
+slim_module: "slim/4.3"
+
+# Launcher settings
+# I change allocation based on which Node and partion being used
+slurm_account: ""
+slurm_partition: ""
+slurm_qos: ""
+array_spec: ""
+cpus_per_task: 1
+mem: ""
+time: ""
+
+# Control settings. Seed = seed_base + array task ID.
+seed_base: 67000000
+
+# Full run: finish burn-in at tick 2000, and end at tick 4000.
+burnin: 2000
+end_gen: 4000
+
+# treatment applied after burn-in.
+scenario: "environmental conditions"
+hyb_rate: ""
+
+# Output options for a lightweight demographic example.
+record_tree_seq: false
+write_final_tree: false
+write_final_checkpoint: false
