@@ -1,5 +1,7 @@
-// phenotype retrive
-// 
+// HELPER FUNCTIONS
+// Trait effects, individual phenotypes, and phenotype summaries
+
+// Retrieve a trait (m3) mutation's stored effects on both traits; stop if missing.
 function (numeric) storedPhenoEffect(object<Mutation>$ phenoMut)
 {
     deltaZ = phenoMut.getValue("deltaZ");
@@ -11,7 +13,7 @@ function (numeric) storedPhenoEffect(object<Mutation>$ phenoMut)
     return deltaZ;
 }
 
-// vector for individual phenotype based on mutation - cahced
+// Add trait (m3) effects across both genome copies to the ancestral trait values.
 function (numeric) getPhenotype(object<Individual>$ ind)
 {
     muts = ind.genomes.mutationsOfType(m3);
@@ -28,7 +30,7 @@ function (numeric) getPhenotype(object<Individual>$ ind)
              ANC_Z[1] + sum(z2Effects));
 }
 
-// Mean phenotype of a set of individuals - vector
+// Return both trait means, or two zeros when no individuals are supplied.
 function (numeric) meanPhenotype(object<Individual> inds)
 {
     n = size(inds);
@@ -42,9 +44,8 @@ function (numeric) meanPhenotype(object<Individual> inds)
              mean(zz[seq(1, 2 * n - 1, by = 2)]));
 }
 
-// Exact population-level phenotype summaries. Variances and covariance use
-// denominator N-1; they are reported as zero when fewer than two individuals
-// are present.
+// Return both trait means, sample variances, and covariance (denominator n - 1).
+// Use zero placeholders for undefined statistics when n is 0 or 1.
 function (numeric) phenotypeSummary(object<Individual> inds)
 {
     n = size(inds);
@@ -68,8 +69,7 @@ function (numeric) phenotypeSummary(object<Individual> inds)
     return c(meanZ1, meanZ2, varZ1, varZ2, covZ1Z2);
 }
 
-// Save phenotypes for exactly the individuals retained as historical genetic
-// samples. pedigree_id links these rows to Individual metadata in the .trees.
+// Append both traits for the tree-sequence sample, keyed by pedigree ID.
 function (void) writeSampledPhenotypes(object<Individual> inds,
                                        string$ populationName)
 {
@@ -87,6 +87,8 @@ function (void) writeSampledPhenotypes(object<Individual> inds,
 }
 
 
+// Sum Gaussian competition weights. The caller removes the focal contribution.
+// Competition, mate choice, and fecundity
 
 function (float$) densitySum(numeric focalZ, numeric cz1, numeric cz2)
 {
@@ -97,21 +99,24 @@ function (float$) densitySum(numeric focalZ, numeric cz1, numeric cz2)
 
     return sum(exp(-d2 / COMP_DENOM));
 }
-
+// Return one Gaussian mate-choice weight per candidate, plus a small baseline.
 function (float) mateWeights(numeric focalZ, numeric cz1, numeric cz2)
 {
     d2 = (cz1 - focalZ[0])^2 + (cz2 - focalZ[1])^2;
 
     return exp(-d2 / MATE_DENOM) + epsilonMate;
 }
-
+// Convert local competition into a per-ovule attempt probability.
 function (float$) densityFecundity(numeric$ Nlocal)
 {
     return dd_rate0 / (1.0 + alpha * Nlocal);
 }
 
 
-// BDMI function
+// Multiply BDMI penalties using the smaller of the two distinct mutation counts.
+// Pairs homozygous for both types receive the full penalty; others receive the scaled penalty.
+// Genetic incompatibilities (BDMI)
+
 function (float$) bdmiMultiplier(object<Individual>$ ind)
 {
     genomeA = ind.genome1;
@@ -146,9 +151,10 @@ function (float$) bdmiMultiplier(object<Individual>$ ind)
     return ((1.0 - sb)^n_pairs_hom) * ((1.0 - h_bdmi * sb)^n_pairs_het);
 }
 
+// Environmental trait optima
 
-// optimum phenotyp
 
+// Return the two trait optima assigned to the population.
 function (Nf) thetaByPop(object<Subpopulation>$ pop)
 {
     if (pop == p1)
@@ -160,7 +166,7 @@ function (Nf) thetaByPop(object<Subpopulation>$ pop)
     return c(thetaH_z1, thetaH_z2);
 }
 
-// TRAIT BASED SELECTION
+// Choose the trait optimum for this tick and scenario. NULL disables trait selection.
 function (Nf) thetaForPop(object<Subpopulation>$ pop)
 {
     if (community.tick <= burnin)
@@ -182,24 +188,27 @@ function (Nf) thetaForPop(object<Subpopulation>$ pop)
     return thetaByPop(pop);
 }
 
+// 1.5 Random genomic positions
 
-//  genomic positions
 
+// Draw a uniform position in the phenotype region (unused in this script).
 function (integer) drawphenoPosition(void)
 {
     return rdunif(1, phenoStart, phenoEnd);
 }
-
+// Draw a uniform position in the BDMI region (unused in this script).
 function (integer) drawBDMIPosition(void)
 {
     return rdunif(1, bdmiStart, bdmiEnd);
 }
-
+// Draw a uniform position in the neutral region (unused in this script).
 function (integer) drawNeutralPosition(void)
 {
     return rdunif(1, neutralStart, neutralEnd);
 }
 
+// Check whether the individual has a phenotype cache from the previous tick.
+// Cached phenotypes and eligible candidates
 
 function (logical$) hasCurrentPhenoCache(object<Individual>$ ind)
 {
@@ -211,7 +220,7 @@ function (logical$) hasCurrentPhenoCache(object<Individual>$ ind)
     return (cacheTick == (community.tick - 1));
 }
 
-
+// Build aligned arrays of indices and cached traits for eligible candidates.
 function (void) cacheCandidateArrays(object<Subpopulation>$ pop, string$ suffix)
 {
     inds = pop.individuals;
@@ -239,7 +248,9 @@ function (void) cacheCandidateArrays(object<Subpopulation>$ pop, string$ suffix)
 }
 
 
-// phenotype-effect checkpoint 
+// Checkpoint files: mutation effects and viability tags
+
+// Save each m3 mutation ID and its two trait effects alongside the checkpoint.
 function (void) writePhenotypeEffects(string$ path)
 {
     muts = sim.mutationsOfType(m3);
@@ -249,8 +260,7 @@ function (void) writePhenotypeEffects(string$ path)
     {
         nMuts = size(muts);
 
-        // One pass, then vectorized formatting -- see the note in
-        // restorePhenotypeEffects() about growing a vector inside a loop.
+        // Retrieve both effects for all mutations before formatting the CSV rows.
         effects = sapply(muts, "storedPhenoEffect(applyValue);");
         z1 = effects[seq(0, 2 * nMuts - 2, by = 2)];
         z2 = effects[seq(1, 2 * nMuts - 1, by = 2)];
@@ -262,7 +272,7 @@ function (void) writePhenotypeEffects(string$ path)
 
     writeFile(path, lines, append=F);
 }
-
+// Restore both trait effects by mutation ID from the matching checkpoint CSV.
 function (void) restorePhenotypeEffects(string$ path)
 {
     lines = readFile(path);
@@ -305,10 +315,7 @@ function (void) restorePhenotypeEffects(string$ path)
 }
 
 
-// Eligibility is indexed by population and within-population individual order,
-// which outputFull()/readFromPopulationFile() preserve. Keep this sidecar with
-// its exact checkpoint; neither tags nor cached phenotype values are serialized
-// by outputFull(). No random numbers are consumed by saving/restoring it.
+// Save viability tags by population and individual order in the matching checkpoint.
 function (void) writeEligibility(string$ path)
 {
     lines = "population_id,individual_index,survived";
@@ -320,7 +327,7 @@ function (void) writeEligibility(string$ path)
     }
     writeFile(path, lines, append=F);
 }
-
+// Restore viability tags and rebuild cached traits for eligible individuals.
 function (void) restoreEligibility(string$ path)
 {
     lines = readFile(path);
@@ -373,9 +380,10 @@ function (void) restoreEligibility(string$ path)
     catn("Restored survival eligibility from: " + path);
 }
 
+// Restart input and output path checks
 
-// Normalize Linux paths for input/output collision checks. The launcher must
-// additionally resolve symlinks (realpath) before passing paths to SLiM.
+
+// Normalize paths for collision checks. The launcher must resolve symlinks first.
 function (string$) normalizedRunPath(string$ path)
 {
     if (strprefix(path, "~"))
@@ -399,7 +407,7 @@ function (string$) normalizedRunPath(string$ path)
     }
     return "/" + paste(parts, sep="/");
 }
-
+// Reject duplicate output paths and outputs that would overwrite restart inputs.
 function (void) protectRunInputs(void)
 {
     inputs = c(checkpointIn, checkpointSeedIn, phenoEffectsIn, eligibilityIn);
@@ -425,6 +433,11 @@ function (void) protectRunInputs(void)
             stop("Output would overwrite a restart input: " + path);
 }
 
+
+// Model setup: define defaults, validate settings, and configure the genome.
+// MODEL INITIALIZATION
+// Set parameter defaults, validate inputs, and configure mutation and recombination.
+
 initialize()
 {
     initializeSLiMModelType("nonWF");
@@ -441,6 +454,7 @@ initialize()
         initializeTreeSeq();
 
 
+    // Founder counts, run length, and genome size.
     if (!exists("K_p1"))
         defineConstant("K_p1", 100);
 
@@ -460,6 +474,7 @@ initialize()
         defineConstant("L", 100000);
 
 
+    // Coordinate bounds for the phenotype, BDMI, and neutral regions.
     if (!exists("phenoStart"))
         defineConstant("phenoStart", 0);
 
@@ -491,6 +506,7 @@ initialize()
         defineConstant("recomb", 1e-8);
 
 
+    // Competition strength, baseline reproduction, and ovule limit.
     if (!exists("alpha"))
         defineConstant("alpha", 0.0075);
 
@@ -501,6 +517,7 @@ initialize()
         defineConstant("maxOvules", 5);
 
 
+    // External mating probability and BDMI penalty settings.
     if (!exists("hybRate"))
         defineConstant("hybRate", 0.05);
 
@@ -537,6 +554,7 @@ initialize()
     defineConstant("muTotal", mupheno + 2.0 * muBDMI + muNeutralUsed);
 
 
+    // Phenotype effect size and environmental optima.
     if (!exists("phenoLambda"))
         defineConstant("phenoLambda", 0.02);
 
@@ -572,6 +590,7 @@ initialize()
     if (!exists("thetaN_z2"))
         defineConstant("thetaN_z2", 4.5);
 
+    // Gaussian widths for selection, competition, and mate choice.
     if (!exists("traitSigma"))
         defineConstant("traitSigma", 1.50);
 
@@ -713,7 +732,10 @@ initialize()
 
 //  mutation callbacks
 
-// magnitude when a phenotype mutation first arises.
+// Draw a random direction and exponential magnitude for each new m3 effect.
+// MUTATION CALLBACKS
+// Assign trait effects and filter newly generated mutations.
+
 mutation(m3)
 {
     direction = rnorm(2);
@@ -733,7 +755,7 @@ mutation(m3)
     return T;
 }
 
-// p1-type BDMI mutations: accepted only in p1.
+// Accept new m1 mutations only in p1 and during the configured accumulation period.
 mutation(m1)
 {
     if (subpop != p1)
@@ -745,7 +767,7 @@ mutation(m1)
     return T;   // continuous mode
 }
 
-// p2-type BDMI mutations: accepted only in p2.
+// Accept new m2 mutations only in p2 and during the configured accumulation period.
 mutation(m2)
 {
     if (subpop != p2)
@@ -756,12 +778,16 @@ mutation(m2)
 
     return T;   // continuous mode
 }
-
+// Accept neutral mutations only when forward neutral mutation is enabled.
 mutation(m7)
 {
     return addNeutralForward;
 }
 
+// Start with founders or restore a checkpoint, then initialize the output CSVs.
+// STARTUP AND LIFE CYCLE
+// Regular nonWF tick order: first() -> reproduction() -> early() -> late().
+// At startup, the tick-1 early() block creates founders or restores a checkpoint.
 
 1 early()
 {
@@ -833,6 +859,8 @@ mutation(m7)
     catn("Writing per-generation output to: " + outputFile);
 }
 
+// Generate reproductive attempts, choose mates, and assign offspring to populations.
+// Reproduction and offspring assignment
 
 1:5000 reproduction()
 {
@@ -892,7 +920,9 @@ mutation(m7)
         return;
     }
 
-    // --- post burn-in: external mating applies to all three populations ---
+    
+    
+    // post burn-in: external mating applies to all three populations
     // hybRate chooses the combined external pool, not each population in turn.
     // Individual mates retain the existing phenotype-assortative weights.
     if (pop == p1)
@@ -943,7 +973,8 @@ mutation(m7)
 }
 
 
-// survival tagging
+// Draw viability from trait and BDMI fitness; cache traits for eligible individuals.
+// Viability checks and phenotype caching
 
 1:5000 early()
 {
@@ -999,7 +1030,8 @@ mutation(m7)
 }
 
 
-// per-gen candidate arrays.
+// Prepare candidate arrays for mating and competition from last tick's viability tags.
+// Candidate pools for the next reproductive round (first stage of each tick)
 
 1:5000 first()
 {
@@ -1017,8 +1049,10 @@ mutation(m7)
 
 // output
 
-// Adults die after reproduction - annual model.
-// Newborns remain and become the next generation.
+// Cull adults after reproduction; keep the newborn cohort.
+// END-OF-TICK CALLBACKS
+// Remove adults in the annual model
+
 1:5000 late()
 {
     // This late-stage boundary was already completed before saving. Do not
@@ -1032,6 +1066,8 @@ mutation(m7)
         sim.killIndividuals(adults);
 }
 
+// Log census counts, viability, phenotype summaries, and BDMI variant counts.
+// Write population summaries
 
 1:5000 late()
 {
@@ -1044,8 +1080,7 @@ mutation(m7)
     summaryP2 = phenotypeSummary(p2.individuals);
     summaryP3 = phenotypeSummary(p3.individuals);
 
-    // Number of distinct segregating BDMI variants currently present in
-    // each population. These are variant counts, not mutation-copy counts.
+    // Count distinct BDMI variants present in each population, including fixed ones.
     bdmiM1P1 = size(unique(p1.genomes.mutationsOfType(m1)));
     bdmiM2P1 = size(unique(p1.genomes.mutationsOfType(m2)));
     bdmiM1P2 = size(unique(p2.genomes.mutationsOfType(m1)));
@@ -1077,6 +1112,8 @@ mutation(m7)
     writeFile(outputFile, outLine, append=T);
 }
 
+// Remember sampled individuals and save their traits; write the burn-in tree if enabled.
+// Remember tree-sequence samples and record their traits
 
 1:5000 late()
 {
@@ -1129,6 +1166,8 @@ mutation(m7)
     }
 }
 
+// Save restart files and optional final tree output, then end the section.
+// Save checkpoints and finish the run section
 
 1:5000 late()
 {
@@ -1178,4 +1217,3 @@ mutation(m7)
         sim.simulationFinished();
     }
 }
-
